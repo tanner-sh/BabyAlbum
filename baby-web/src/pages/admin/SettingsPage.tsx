@@ -60,37 +60,132 @@ function CronPicker({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 const MAP_TILES: { value: AppSettings['mapTiles']; label: string; hint: string }[] = [
-  { value: 'osm', label: 'OpenStreetMap', hint: '国际通用的开源地图；在国内加载可能慢一些' },
-  { value: 'amap', label: '高德地图', hint: '国内加载快、中文标注。照片的 GPS 坐标会自动换算成高德的坐标系。使用时请遵守高德的服务条款' },
+  { value: 'osm', label: 'OpenStreetMap（默认）', hint: '国际通用的开源地图；在国内加载可能慢一些' },
+  { value: 'tianditu', label: '天地图', hint: '国家测绘地理信息局的官方地图，中文标注、国内加载快。需要在天地图官网免费申请 Key' },
+  { value: 'amap', label: '高德地图', hint: '国内加载快、中文标注，照片坐标会自动换算。用的是高德网页地图的瓦片地址，不是开放接口，可能随时失效；使用时请遵守高德的服务条款' },
 ];
+
+/** 在浏览器里加载一块天地图的瓦片，验证 Key（天地图按网站域名限制浏览器端 Key，只能在浏览器里验证） */
+function testTiandituKey(key: string) {
+  return new Promise<boolean>((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => resolve(false), 10_000);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    img.src = `https://t0.tianditu.gov.cn/DataServer?T=vec_w&x=0&y=0&l=1&tk=${encodeURIComponent(key)}&_=${Date.now()}`;
+  });
+}
 
 /** 宝宝相册自己的设置（和 Immich 无关），改了马上保存 */
 function AppSettingsSection() {
   const queryClient = useQueryClient();
   const app = useQuery({ queryKey: ['admin', 'app-settings'], queryFn: () => get<AppSettings>('/api/admin/app-settings') });
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [key, setKey] = useState<string | null>(null);
+  const [askKey, setAskKey] = useState(false);
+  const [busy, setBusy] = useState(false);
   if (!app.data) return app.isError ? <ErrorBox error={app.error} /> : null;
-  async function choose(mapTiles: AppSettings['mapTiles']) {
+  const current = app.data;
+  const keyValue = key ?? current.tiandituKey ?? '';
+
+  async function save(patch: Partial<AppSettings>, done?: string) {
     setError(null);
+    setMessage(null);
+    setBusy(true);
     try {
-      queryClient.setQueryData(['admin', 'app-settings'], await request<AppSettings>('PUT', '/api/admin/app-settings', { mapTiles }));
+      queryClient.setQueryData(['admin', 'app-settings'], await request<AppSettings>('PUT', '/api/admin/app-settings', patch));
       // 地图数据里带着底图设置
       await queryClient.invalidateQueries({ predicate: (q) => q.queryKey.includes('map') });
+      if (done) setMessage(done);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      return false;
+    } finally {
+      setBusy(false);
     }
   }
+
+  function choose(tiles: AppSettings['mapTiles']) {
+    // 天地图要先有 Key
+    if (tiles === 'tianditu' && !current.tiandituKey) {
+      setAskKey(true);
+      return;
+    }
+    void save({ mapTiles: tiles });
+  }
+
+  async function saveKey() {
+    // 天地图的 Key 是小写的，复制时可能带了空格或被改成大写
+    const k = keyValue.trim().toLowerCase();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const ok = await testTiandituKey(k);
+    setBusy(false);
+    if (!ok) {
+      setError('用这个 Key 加载不了天地图。请检查 Key 是否完整、是不是“浏览器端”类型，以及天地图控制台的白名单里有没有本站的域名');
+      return;
+    }
+    if (await save({ tiandituKey: k, mapTiles: 'tianditu' }, '天地图的 Key 可以用，已经切换到天地图')) {
+      setKey(null);
+      setAskKey(false);
+    }
+  }
+
+  async function removeKey() {
+    if (!confirm('删除天地图的 Key？正在用天地图的话会换回 OpenStreetMap。')) return;
+    await save({ tiandituKey: null, mapTiles: current.mapTiles === 'tianditu' ? 'osm' : current.mapTiles }, '已删除天地图的 Key');
+    setKey(null);
+  }
+
+  const showKey = askKey || current.mapTiles === 'tianditu' || !!current.tiandituKey;
+
   return (
     <Section title="地图" hint="“搜索 · 地图”里按拍摄地点看照片时用的底图。改了马上生效。">
       <div className="role-picker">
         {MAP_TILES.map((t) => (
-          <button key={t.value} type="button" className={`role-option ${app.data.mapTiles === t.value ? 'selected' : ''}`} onClick={() => choose(t.value)}>
+          <button
+            key={t.value}
+            type="button"
+            disabled={busy}
+            className={`role-option ${current.mapTiles === t.value ? 'selected' : ''}`}
+            onClick={() => choose(t.value)}
+          >
             <strong>{t.label}</strong>
             <span className="muted">{t.hint}</span>
           </button>
         ))}
       </div>
+      {showKey && (
+        <div className="field tianditu-key">
+          <span>天地图 Key</span>
+          <div className="inline-fields">
+            <input value={keyValue} onChange={(e) => setKey(e.target.value)} placeholder="32 位字母和数字" spellCheck={false} autoComplete="off" />
+            <button className="btn btn-primary" disabled={busy || !keyValue.trim() || keyValue.trim() === current.tiandituKey} onClick={saveKey}>
+              {busy ? '验证中…' : '验证并使用'}
+            </button>
+            {current.tiandituKey && (
+              <button className="btn btn-danger-ghost" disabled={busy} onClick={removeKey}>
+                删除
+              </button>
+            )}
+          </div>
+          <p className="muted small">
+            申请方法：在 <a href="https://console.tianditu.gov.cn/" target="_blank" rel="noreferrer">天地图控制台</a> 注册登录，创建应用时类型选“浏览器端”，
+            白名单里填访问宝宝相册用的域名（比如 photos.example.com），把生成的 Key 复制到这里。看地图的人的浏览器会直接用这个 Key 加载地图。
+          </p>
+        </div>
+      )}
       {error && <div className="error-box">{error}</div>}
+      {message && <div className="success-box">{message}</div>}
     </Section>
   );
 }

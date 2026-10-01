@@ -11,16 +11,27 @@ import { Lightbox } from './Lightbox';
 import { PhotoGrid } from './PhotoGrid';
 import { Empty, ErrorBox, Spinner } from './ui';
 
-// 地图底图：OpenStreetMap 用 GPS 坐标（WGS-84）；高德用国测局坐标（GCJ-02），照片坐标要换算
-const TILES = {
-  osm: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '© OpenStreetMap', maxZoom: 19, subdomains: '' },
-  amap: {
-    url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-    attribution: '© 高德地图',
-    maxZoom: 18,
-    subdomains: '1234',
-  },
-};
+// 地图底图。OpenStreetMap、天地图用 GPS 坐标（WGS-84，天地图的 CGCS2000 和它相差不到 1 米）；
+// 高德用国测局坐标（GCJ-02），照片坐标要换算，否则会偏几百米
+type TileLayerSpec = { url: string; subdomains?: string };
+type TileSource = { layers: TileLayerSpec[]; attribution: string; maxZoom: number; gcj02?: boolean };
+
+export function tileSource(tiles: MapData['tiles'], tiandituKey: string | null): TileSource {
+  if (tiles === 'amap') {
+    return {
+      layers: [{ url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', subdomains: '1234' }],
+      attribution: '© 高德地图',
+      maxZoom: 18,
+      gcj02: true,
+    };
+  }
+  if (tiles === 'tianditu' && tiandituKey) {
+    // 天地图分两层：底图（vec）和中文注记（cva），都用球面墨卡托（_w）
+    const layer = (t: string) => ({ url: `https://t{s}.tianditu.gov.cn/DataServer?T=${t}&x={x}&y={y}&l={z}&tk=${tiandituKey}`, subdomains: '01234567' });
+    return { layers: [layer('vec_w'), layer('cva_w')], attribution: '© 天地图', maxZoom: 18 };
+  }
+  return { layers: [{ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' }], attribution: '© OpenStreetMap', maxZoom: 19 };
+}
 
 /** 一次最多看多少张（太多了一页也看不完） */
 const MAX_SELECTED = 300;
@@ -108,14 +119,20 @@ function MapCanvas({
 }) {
   const album = useAlbum();
   const el = useRef<HTMLDivElement>(null);
-  const project = useMemo(() => (data.tiles === 'amap' ? wgs84ToGcj02 : (lat: number, lon: number): [number, number] => [lat, lon]), [data.tiles]);
+  const source = useMemo(() => tileSource(data.tiles, data.tiandituKey), [data.tiles, data.tiandituKey]);
+  const project = useMemo(() => (source.gcj02 ? wgs84ToGcj02 : (lat: number, lon: number): [number, number] => [lat, lon]), [source]);
+  const [tileError, setTileError] = useState(false);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
   useEffect(() => {
-    const tiles = TILES[data.tiles];
     const map = L.map(el.current!, { zoomControl: true, worldCopyJump: true });
-    L.tileLayer(tiles.url, { attribution: tiles.attribution, maxZoom: tiles.maxZoom, subdomains: tiles.subdomains }).addTo(map);
+    source.layers.forEach((l, i) => {
+      const layer = L.tileLayer(l.url, { attribution: i === 0 ? source.attribution : undefined, maxZoom: source.maxZoom, subdomains: l.subdomains ?? 'abc' });
+      // 底图加载失败（比如天地图的 Key 无效、超出每日限额）时提示，不然只看到一片灰
+      if (i === 0) layer.on('tileerror', () => setTileError(true));
+      layer.addTo(map);
+    });
 
     const thumb = (id: string | undefined, count?: number) =>
       L.divIcon({
@@ -155,9 +172,19 @@ function MapCanvas({
       flyTo.current = null;
       map.remove();
     };
-  }, [data, album, project, flyTo]);
+  }, [data, album, project, source, flyTo]);
 
-  return <div ref={el} className="map-canvas" />;
+  return (
+    <div className="map-canvas-wrap">
+      <div ref={el} className="map-canvas" />
+      {tileError && (
+        <p className="map-tile-error">
+          地图底图加载失败。{data.tiles === 'tianditu' ? '天地图的 Key 可能无效、超出了每日调用量，或者没有把本站域名加到白名单；' : ''}
+          管理员可以在“管理 → 系统设置 → 地图”里换一个底图。
+        </p>
+      )}
+    </div>
+  );
 }
 
 function SelectionPanel({ selection, babyId }: { selection: Selection; babyId: number | null }) {

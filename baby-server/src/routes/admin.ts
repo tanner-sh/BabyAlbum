@@ -10,7 +10,7 @@ import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, use
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
 import { importProgress } from '../import-progress.ts';
-import { mapTiles } from '../map.ts';
+import { MAP_TILES, mapTiles, tiandituKey } from '../map.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
 import { connectWithCredentials, immichConnected, immichStatus, MULTILINGUAL_CLIP_MODEL } from '../immich-link.ts';
 import { immich } from '../immich.ts';
@@ -325,12 +325,25 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ---- 宝宝相册自己的设置（不是 Immich 的）
-  app.get('/api/admin/app-settings', async () => ({ mapTiles: mapTiles() }));
+  const appSettings = () => ({ mapTiles: mapTiles(), tiandituKey: tiandituKey() });
 
-  app.put('/api/admin/app-settings', async (req) => {
-    const body = z.object({ mapTiles: z.enum(['osm', 'amap']).optional() }).parse(req.body);
+  app.get('/api/admin/app-settings', async () => appSettings());
+
+  app.put('/api/admin/app-settings', async (req, reply) => {
+    const body = z
+      .object({
+        mapTiles: z.enum(MAP_TILES).optional(),
+        // 天地图的 Key 是 32 位十六进制；传 null 表示删除
+        tiandituKey: z.string().trim().regex(/^[0-9a-f]{32}$/i, '天地图的 Key 是 32 位字母和数字，请检查有没有复制完整').nullable().optional(),
+      })
+      .parse(req.body);
+    if (body.tiandituKey !== undefined) {
+      if (body.tiandituKey) settings.set('map.tiandituKey', body.tiandituKey.toLowerCase());
+      else settings.remove('map.tiandituKey');
+    }
+    if (body.mapTiles === 'tianditu' && !tiandituKey()) return reply.code(400).send({ message: '请先填写天地图的 Key' });
     if (body.mapTiles) settings.set('map.tiles', body.mapTiles);
-    return { mapTiles: mapTiles() };
+    return appSettings();
   });
 
   // ---- 导入进度（照片、视频各剩多少，预计还要多久）

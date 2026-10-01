@@ -25,8 +25,17 @@ const PROVINCES: Record<string, string> = {
 const countryZh = (name: string | null) => (name && countries.getName(countries.getAlpha2Code(name, 'en') ?? '', 'zh')) || name;
 const stateZh = (name: string | null) => (name && PROVINCES[name]) || name;
 
-export type MapTiles = 'osm' | 'amap';
-export const mapTiles = (): MapTiles => (settings.get('map.tiles') === 'amap' ? 'amap' : 'osm');
+// 底图：OpenStreetMap（默认）、高德（非官方的瓦片地址，不需要 Key）、天地图（官方，需要在天地图官网申请浏览器端 Key）
+export const MAP_TILES = ['osm', 'amap', 'tianditu'] as const;
+export type MapTiles = (typeof MAP_TILES)[number];
+export const mapTiles = (): MapTiles => {
+  const value = settings.get('map.tiles');
+  // 选了天地图但 Key 被清掉了，退回默认
+  if (value === 'tianditu') return tiandituKey() ? 'tianditu' : 'osm';
+  return value === 'amap' ? 'amap' : 'osm';
+};
+/** 天地图的浏览器端 Key：在浏览器里加载瓦片时要带上，所以会发给看地图的人（天地图控制台可以限制只允许本站域名使用） */
+export const tiandituKey = () => settings.get('map.tiandituKey') ?? null;
 
 /** 所有带 GPS 的照片（Immich 只返回时间线上可见的） */
 function allMarkers() {
@@ -74,8 +83,10 @@ export async function mapData(babies: Baby[] | null) {
     p.lon += m.lon;
     places.set(key, p);
   }
+  const tiles = mapTiles();
   return {
-    tiles: mapTiles(),
+    tiles,
+    tiandituKey: tiles === 'tianditu' ? tiandituKey() : null,
     markers: visible.map((m) => [m.id, round(m.lat), round(m.lon)] as const),
     places: [...places.values()]
       .map((p) => ({ ...p, lat: round(p.lat / p.count), lon: round(p.lon / p.count) }))
