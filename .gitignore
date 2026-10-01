@@ -1,0 +1,17 @@
+# 依赖和构建产物
+node_modules/
+baby-web/dist/
+
+# 本地配置（可能含密码），只提交示例文件
+.env
+.env.*
+!.env.example
+
+# 隐私数据：NAS 盘点报告（含照片路径）、本机测试数据（测试账号密码、日志）
+reports/
+dev-data/
+data/
+*.log
+
+# 系统文件
+.DS_Store

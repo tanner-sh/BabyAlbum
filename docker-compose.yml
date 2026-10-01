@@ -1,0 +1,157 @@
+# BabyAlbum 宝宝相册
+#
+# 直接 docker compose up -d 即可，不需要任何配置文件。NAS 连接、导入哪些文件夹、成员、
+# Immich 的各项设置，全部在宝宝相册的管理页面里完成。
+#
+# 组成：
+#   baby-server              宝宝相册（网页 + API），唯一对外开放的服务，默认端口 3000
+#   nas-mounter              挂载服务：按宝宝相册的指令挂载 NAS（需要挂载权限，不对外开放）
+#   immich-*、database、redis Immich 及其依赖，只在后台工作（扫描、缩略图、转码、人脸、搜索）
+#
+# 可选的 .env（都有默认值）：BABY_PORT、TZ、IMMICH_VERSION、DB_PASSWORD、BABYALBUM_HOST_DIR
+# 直接部署在绿联 NAS 上时，叠加 docker-compose.nas.yml（硬件转码、数据放到指定磁盘）
+#
+# Immich 部分基于官方 v3.2.4 的 docker-compose.yml，升级时请对照：
+# https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
+
+name: babyalbum
+
+# 挂载服务把 NAS 挂到宿主机的 ${BABYALBUM_HOST_DIR}/nas/<编号> 下，通过挂载传播（rshared → rslave）
+# 让 Immich 和宝宝相册在运行时直接看到，新增 NAS 不需要重启任何容器。
+# 在 Mac 上用 OrbStack 时，这个目录在 OrbStack 的 Linux 虚拟机里，不是 macOS 上的目录
+x-nas: &nas
+  type: bind
+  source: ${BABYALBUM_HOST_DIR:-/var/lib/babyalbum}/nas
+  target: /mnt/nas
+  read_only: true
+  bind:
+    propagation: rslave
+    create_host_path: true
+
+x-backup: &backup
+  type: bind
+  source: ${BABYALBUM_HOST_DIR:-/var/lib/babyalbum}/backup
+  bind:
+    propagation: rslave
+    create_host_path: true
+
+x-db-env: &db-env
+  DB_PASSWORD: ${DB_PASSWORD:-babyalbum}
+  DB_USERNAME: postgres
+  DB_DATABASE_NAME: immich
+
+services:
+  # —— 宝宝相册 ——
+  baby-server:
+    container_name: baby_server
+    image: babyalbum-app
+    build:
+      context: .
+      dockerfile: baby-server/Dockerfile
+    environment:
+      IMMICH_URL: http://immich-server:2283
+      BACKUP_DIR: /backups/baby-album
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - baby-data:/data
+      - *nas
+      - { <<: *backup, target: /backups }
+      - mounter-socket:/run/mounter
+    ports:
+      - '${BABY_PORT:-3000}:3000'
+    depends_on:
+      - immich-server
+      - nas-mounter
+    restart: unless-stopped
+
+  # —— 挂载服务：和宝宝相册用同一个镜像，只是入口不同 ——
+  nas-mounter:
+    container_name: nas_mounter
+    image: babyalbum-app
+    build:
+      context: .
+      dockerfile: baby-server/Dockerfile
+    command: ['node', '--disable-warning=ExperimentalWarning', 'src/mounter/main.ts']
+    # 主机网络：SMB 连接不随这个容器重启而断开（已有的挂载一直可用）。不监听任何端口，只通过 socket 文件接收指令
+    network_mode: host
+    cap_add: [SYS_ADMIN, DAC_READ_SEARCH]
+    security_opt: ['apparmor:unconfined']
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - type: bind
+        source: ${BABYALBUM_HOST_DIR:-/var/lib/babyalbum}
+        target: /host
+        bind:
+          propagation: rshared
+          create_host_path: true
+      - mounter-socket:/run/mounter
+    restart: unless-stopped
+
+  # —— Immich（官方镜像，不改源码，不对外开放端口） ——
+  immich-server:
+    container_name: immich_server
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-v3}
+    environment:
+      <<: *db-env
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      # Immich 自己的数据：缩略图、转码缓存
+      - immich-data:/data
+      # NAS 上的照片（只读），宝宝相册的管理员在网页上选择导入哪些文件夹
+      - *nas
+      # 数据库备份：设置了备份位置时是 NAS 上的文件夹，否则留在本机
+      - { <<: *backup, target: /data/backups }
+      - /etc/localtime:/etc/localtime:ro
+    # 不对外开放端口，只给宝宝相册内部调用。排查问题时可以临时加上 ports: ['127.0.0.1:2283:2283']
+    depends_on:
+      - redis
+      - database
+      - nas-mounter
+    restart: always
+    healthcheck:
+      disable: false
+
+  immich-machine-learning:
+    container_name: immich_machine_learning
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v3}
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - model-cache:/cache
+    restart: always
+    healthcheck:
+      disable: false
+
+  redis:
+    container_name: immich_redis
+    image: docker.io/valkey/valkey:9@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+    restart: always
+
+  database:
+    container_name: immich_postgres
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      # 数据库只在容器内部网络里，不对外开放；默认密码就够用，想改可以在 .env 里设 DB_PASSWORD（只能在第一次启动前改）
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-babyalbum}
+      POSTGRES_USER: postgres
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+      # 数据库不在 SSD 上时取消下一行注释
+      # DB_STORAGE_TYPE: 'HDD'
+    volumes:
+      - immich-postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: always
+    healthcheck:
+      disable: false
+
+volumes:
+  baby-data:
+  immich-data:
+  immich-postgres:
+  model-cache:
+  mounter-socket:

@@ -1,0 +1,26 @@
+# 本机测试用覆盖配置（在 .env 中设置 COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml）
+#
+# - 测试照片放在 Docker 数据卷里，挂到 /mnt/nas/测试照片（不挂载 macOS 上的目录：
+#   OrbStack 2.2.3 + macOS 27 上，容器大量读取 macOS 挂载的目录时虚拟机会卡死）
+# - 限制 CPU，并且默认不启动机器学习容器（测试图片里没有真实人脸，dev-seed.ts 会手动标注）。
+#   需要测试人脸识别时：docker compose --profile ml up -d
+# - Immich 只对本机开放 2283 端口，dev-seed.ts 需要直接调用它标注人脸
+
+services:
+  immich-server:
+    cpus: 3
+    ports:
+      - '127.0.0.1:2283:2283'
+    volumes:
+      - dev-photos:/mnt/nas/测试照片:ro
+  database:
+    cpus: 2
+  immich-machine-learning:
+    profiles: ['ml']
+    cpus: 2
+  baby-server:
+    volumes:
+      - dev-photos:/mnt/nas/测试照片:ro
+
+volumes:
+  dev-photos:

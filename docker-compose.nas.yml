@@ -1,0 +1,25 @@
+# 直接部署在绿联 DX4600（Intel N5105）上时叠加的配置：
+#   在 .env 中设置 COMPOSE_FILE=docker-compose.yml:docker-compose.nas.yml
+#
+# 照片在 NAS 自己的磁盘上，也可以照样在网页上“添加 NAS”，地址填 127.0.0.1（通过 SMB 访问本机）。
+
+services:
+  immich-server:
+    # Intel QuickSync 硬件转码（需要转码时在 Immich 的设置里选 Quick Sync）
+    devices:
+      - /dev/dri:/dev/dri
+
+  # 缩略图和数据库放到 M.2 SSD 上更快：取消注释并改成实际路径
+  # immich-server:
+  #   volumes:
+  #     - /volume2/babyalbum/immich:/data
+  # database:
+  #   volumes:
+  #     - /volume2/babyalbum/postgres:/var/lib/postgresql/data
+
+  # 想试核显加速人脸识别时，取消下面的注释（OpenVINO 在 N5105 上不一定稳定，出问题就换回 CPU）
+  # immich-machine-learning:
+  #   image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v3}-openvino
+  #   extends:
+  #     file: hwaccel.ml.yml
+  #     service: openvino
