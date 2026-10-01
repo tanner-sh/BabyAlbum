@@ -392,7 +392,8 @@ function folderHasBaby(baby: Baby, folder: string) {
  * - 照片：人脸识别出有宝宝
  * - 视频：人脸常常识别不出来，所以只要它所在的文件夹里有宝宝的照片，就算宝宝的
  * 按文件夹分组，用同文件夹里可信照片最集中的那一天作为建议日期；整个文件夹都不可信时往上找一级。
- * 文件夹里有这类问题时，同文件夹中和建议日期相差很远的照片、视频也一并列出（同一批文件的日期往往五花八门）。
+ * 文件夹里有这类问题时，同文件夹中和建议日期相差很远的照片也一并列出（同一批交付的照片日期往往五花八门）；
+ * 视频一般带着准确的拍摄时间，只有早于出生才列出。
  */
 export async function dateIssues(baby: Baby) {
   const overrides = dateOverrides.all();
@@ -430,6 +431,8 @@ export async function dateIssues(baby: Baby) {
     const flagged = mine.filter((a) => {
       const d = a.localDateTime.slice(0, 10);
       if (d < baby.birthday) return true;
+      // 视频一般带着准确的拍摄时间（入学照文件夹里放几段小时候的视频很正常），只有早于出生才算错
+      if (a.type === immich.AssetTypeEnum.Video) return false;
       // 小文件夹（一批交付的照片）里和建议日期相差超过 45 天的，也很可能是同一类问题
       return !!suggested && inFolder.length <= 300 && dayDiff(d, suggested) > 45;
     });
