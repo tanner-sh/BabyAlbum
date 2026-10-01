@@ -83,8 +83,8 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone }: 
           <X size={22} />
         </button>
         <div className="lightbox-title">
-          <strong>{item.age.label}</strong>
-          <span>{formatDateTime(item.takenAt)}</span>
+          <strong>{item.age?.label ?? formatDateTime(item.takenAt, false)}</strong>
+          <span>{item.age ? formatDateTime(item.takenAt) : item.fileName}</span>
         </div>
         <div className="lightbox-actions">
           {!album.readOnly && (

@@ -12,6 +12,7 @@ import { AccountPage, InvitePage, LoginPage, SetupPage } from './pages/AuthPages
 import { BabyPage } from './pages/BabyPage';
 import { ComparePage } from './pages/ComparePage';
 import { HomePage } from './pages/HomePage';
+import { PhotosPage } from './pages/PhotosPage';
 import { Layout } from './pages/Layout';
 import { SharePage } from './pages/SharePage';
 import { SharesPage } from './pages/SharesPage';
@@ -40,6 +41,7 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<Layout />}>
             <Route index element={<HomePage />} />
             <Route path="baby/:id" element={<BabyPage />} />
+            <Route path="photos" element={<PhotosPage />} />
             <Route path="compare" element={<ComparePage />} />
             <Route path="shares" element={<SharesPage />} />
             <Route path="account" element={<AccountPage />} />

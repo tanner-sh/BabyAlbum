@@ -22,7 +22,8 @@ export type AlbumItem = {
   isFavorite: boolean;
   width: number | null;
   height: number | null;
-  age: { label: string; days: number; months: number };
+  /** 宝宝在这张照片里的年龄；“全部照片”里没有 */
+  age?: { label: string; days: number; months: number };
 };
 
 export type TimelineGroup = { label: string; months: number; items: AlbumItem[] };
@@ -184,6 +185,20 @@ export function useSetupStatus() {
 
 /** 当前用户能否修改内容（收藏、里程碑、日期更正、分享） */
 export const canEdit = (me: Me | undefined) => me?.role === 'admin' || me?.role === 'member';
+
+/** 能否看“全部照片”（包括没有宝宝的）：管理员，以及能看所有宝宝的家人 */
+export const canSeeAllPhotos = (me: Me | undefined) => me?.role === 'admin' || (me?.role === 'member' && me.babyIds === null);
+
+export type PhotosPage = { page: number; nextPage: number | null; groups: { label: string; items: AlbumItem[] }[] };
+
+export function usePhotos() {
+  return useInfiniteQuery({
+    queryKey: ['/api', 'photos'],
+    queryFn: ({ pageParam }) => get<PhotosPage>(`/api/photos?page=${pageParam}&size=150`),
+    initialPageParam: 1,
+    getNextPageParam: (last) => last.nextPage,
+  });
+}
 
 // ---------------------------------------------------------------- 管理后台
 

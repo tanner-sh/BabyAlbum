@@ -8,7 +8,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { clearAlbumCache, dateIssues } from '../album.ts';
+import { allPhotos, clearAlbumCache, dateIssues } from '../album.ts';
 import { adminOnly, canSeeBaby, editors, newToken } from '../auth.ts';
 import { babies, dateOverrides, milestones, shares, type Baby, type User } from '../db.ts';
 import { immich, proxyMedia } from '../immich.ts';
@@ -194,6 +194,16 @@ export async function manageRoutes(app: FastifyInstance) {
     if (!share || !shareVisible(req.user!, share.babyIds)) return reply.code(404).send({ message: '分享不存在' });
     shares.remove(id);
     return reply.code(204).send();
+  });
+
+  // ---------- 全部照片（不管有没有宝宝）：只给能看所有宝宝的管理员和家人，只读成员、受限成员看不到
+  app.get('/api/photos', async (req, reply) => {
+    const u = req.user!;
+    if (u.role === 'viewer' || !unrestricted(u)) return reply.code(403).send({ message: '没有权限' });
+    const { page, size } = z
+      .object({ page: z.coerce.number().int().min(1).default(1), size: z.coerce.number().int().min(1).max(500).default(150) })
+      .parse(req.query);
+    return allPhotos(page, size);
   });
 
   // ---------- 相册浏览

@@ -62,12 +62,17 @@ function corrected(a: Asset, overrides: Map<string, string>): Asset {
   return fixed ? { ...a, localDateTime: `${fixed}.000Z` } : a;
 }
 
-/** 这个宝宝的所有被更正过日期的照片（已套用更正） */
-function correctedAssetsOf(baby: Baby, overrides: Map<string, string>): Promise<Asset[]> {
-  return cached(`corrected:${baby.id}`, 10 * 60_000, async () => {
+/** 所有被更正过日期的照片（已套用更正） */
+function correctedAssets(overrides: Map<string, string>): Promise<Asset[]> {
+  return cached('corrected:all', 10 * 60_000, async () => {
     const assets = await mapLimit([...overrides.keys()], 6, (id) => immich.getAssetInfo({ id }).catch(() => null));
-    return assets.filter((a): a is Asset => !!a && (a.people ?? []).some((p) => p.id === baby.immichPersonId));
+    return assets.filter((a): a is Asset => !!a);
   }).then((assets) => assets.map((a) => corrected(a, overrides)));
+}
+
+/** 这个宝宝的所有被更正过日期的照片（已套用更正） */
+async function correctedAssetsOf(baby: Baby, overrides: Map<string, string>): Promise<Asset[]> {
+  return (await correctedAssets(overrides)).filter((a) => (a.people ?? []).some((p) => p.id === baby.immichPersonId));
 }
 
 const byTakenAt = (order: 'asc' | 'desc') => (a: Asset, b: Asset) =>
@@ -123,27 +128,36 @@ async function searchRange(
   return extra.length ? items.sort(byTakenAt(opts.order === immich.AssetOrder.Desc ? 'desc' : 'asc')) : items;
 }
 
-/** 时间线：按拍摄时间倒序，按月龄分组。相邻两页可能落在同一个月龄里，前端拼接时合并同名分组即可 */
-export async function timeline(baby: Baby, page: number, size: number) {
+/**
+ * 按拍摄时间倒序分页，并套用日期更正：被更正过的照片从 Immich 的原始结果里去掉，
+ * 再按更正后的日期插到对应的页里。这一页覆盖的时间范围由 Immich 原始结果的首尾决定
+ */
+async function pageWithCorrections(
+  metadataSearchDto: immich.MetadataSearchDto,
+  page: number,
+  size: number,
+  correctedFor: (overrides: Map<string, string>) => Promise<Asset[]>,
+) {
   const overrides = dateOverrides.all();
-  const { assets } = await immich.searchAssets({
-    metadataSearchDto: { personIds: [baby.immichPersonId], order: immich.AssetOrder.Desc, page, size },
-  });
+  const { assets } = await immich.searchAssets({ metadataSearchDto: { ...metadataSearchDto, order: immich.AssetOrder.Desc, page, size } });
   const nextPage = assets.nextPage ? Number(assets.nextPage) : null;
-
-  // 被更正过的照片按更正后的日期插到对应的页里：这一页覆盖的时间范围由 Immich 原始结果的首尾决定
-  let pageItems = assets.items;
+  let items = assets.items;
   // 超出最后一页的空页：更正过的照片已经在前面的页里出现过了
   const pastEnd = page > 1 && assets.items.length === 0;
   if (overrides.size && !pastEnd) {
     const upper = page === 1 ? '9999' : (assets.items[0]?.localDateTime ?? '9999');
     const lower = nextPage === null ? '0000' : (assets.items.at(-1)?.localDateTime ?? '0000');
-    const extra = (await correctedAssetsOf(baby, overrides)).filter((a) => a.localDateTime > lower && a.localDateTime <= upper);
-    pageItems = assets.items.filter((a) => !overrides.has(a.id)).concat(extra).sort(byTakenAt('desc'));
+    const extra = (await correctedFor(overrides)).filter((a) => a.localDateTime > lower && a.localDateTime <= upper);
+    items = assets.items.filter((a) => !overrides.has(a.id)).concat(extra).sort(byTakenAt('desc'));
   }
+  return { items, nextPage };
+}
 
+/** 时间线：按拍摄时间倒序，按月龄分组。相邻两页可能落在同一个月龄里，前端拼接时合并同名分组即可 */
+export async function timeline(baby: Baby, page: number, size: number) {
+  const { items, nextPage } = await pageWithCorrections({ personIds: [baby.immichPersonId] }, page, size, (o) => correctedAssetsOf(baby, o));
   const groups: { label: string; months: number; items: AlbumItem[] }[] = [];
-  for (const asset of pageItems) {
+  for (const asset of items) {
     const age = computeAge(baby.birthday, asset.localDateTime);
     let group = groups.at(-1);
     if (group?.label !== age.groupLabel) {
@@ -151,6 +165,35 @@ export async function timeline(baby: Baby, page: number, size: number) {
       groups.push(group);
     }
     group.items.push(toItem(baby, asset));
+  }
+  return { page, nextPage, groups };
+}
+
+export type PhotoItem = Omit<AlbumItem, 'age'>;
+
+/** 全部照片：照片库里的所有照片和视频（不管有没有宝宝），按拍摄时间倒序，按月份分组 */
+export async function allPhotos(page: number, size: number) {
+  // 只要时间线上可见的（Live Photo 的视频部分是隐藏的，不单独显示）
+  const { items, nextPage } = await pageWithCorrections({ visibility: immich.AssetVisibility.Timeline }, page, size, correctedAssets);
+  const groups: { label: string; items: PhotoItem[] }[] = [];
+  for (const a of items) {
+    const [y, m] = a.localDateTime.slice(0, 7).split('-').map(Number);
+    const label = `${y}年${m}月`;
+    let group = groups.at(-1);
+    if (group?.label !== label) {
+      group = { label, items: [] };
+      groups.push(group);
+    }
+    group.items.push({
+      id: a.id,
+      type: a.type,
+      takenAt: a.localDateTime,
+      fileName: a.originalFileName,
+      duration: a.duration,
+      isFavorite: a.isFavorite,
+      width: a.width,
+      height: a.height,
+    });
   }
   return { page, nextPage, groups };
 }

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Columns2, House, KeyRound, LogOut, Settings, Share2 } from 'lucide-react';
+import { Columns2, House, Images, KeyRound, LogOut, Settings, Share2 } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router';
-import { AlbumContext, ApiError, canEdit, request, ROLE_LABELS, useMe, useSetupStatus } from '../api';
+import { AlbumContext, ApiError, canEdit, canSeeAllPhotos, request, ROLE_LABELS, useMe, useSetupStatus } from '../api';
 import { Spinner } from '../components/ui';
 
 export function Layout() {
@@ -37,6 +37,12 @@ export function Layout() {
               <House size={18} />
               <span>首页</span>
             </NavLink>
+            {canSeeAllPhotos(user) && (
+              <NavLink to="/photos">
+                <Images size={18} />
+                <span>全部照片</span>
+              </NavLink>
+            )}
             <NavLink to="/compare">
               <Columns2 size={18} />
               <span>同龄对比</span>

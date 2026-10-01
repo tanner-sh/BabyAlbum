@@ -63,7 +63,7 @@ function MonthSheet({
       ) : month.isError ? (
         <ErrorBox error={month.error} />
       ) : (
-        <PhotoGrid items={month.data.items} onOpen={setOpen} caption={(i) => i.age.label} />
+        <PhotoGrid items={month.data.items} onOpen={setOpen} caption={(i) => i.age?.label ?? ''} />
       )}
       {open !== null && month.data && (
         <Lightbox items={month.data.items} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} onMilestone={onMilestone} />

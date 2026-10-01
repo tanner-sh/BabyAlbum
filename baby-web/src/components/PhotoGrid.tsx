@@ -1,12 +1,22 @@
-import { Heart, Play } from 'lucide-react';
+import { Heart, Hourglass, Play } from 'lucide-react';
+import { useState } from 'react';
 import { thumbUrl, useAlbum, type AlbumItem } from '../api';
 import { formatDuration } from '../format';
 
 export function Thumb({ item, onClick, caption }: { item: AlbumItem; onClick: () => void; caption?: string }) {
   const album = useAlbum();
+  // 刚导入的照片可能还没生成缩略图
+  const [missing, setMissing] = useState(false);
   return (
-    <button className="thumb" onClick={onClick} aria-label={`${item.age.label} ${item.fileName}`}>
-      <img src={thumbUrl(album, item.id)} alt="" loading="lazy" decoding="async" />
+    <button className="thumb" onClick={onClick} aria-label={`${item.age?.label ?? ''} ${item.fileName}`}>
+      {missing ? (
+        <span className="thumb-pending">
+          <Hourglass size={18} />
+          处理中
+        </span>
+      ) : (
+        <img src={thumbUrl(album, item.id)} alt="" loading="lazy" decoding="async" onError={() => setMissing(true)} />
+      )}
       {item.type === 'VIDEO' && (
         <span className="thumb-badge">
           <Play size={12} fill="currentColor" />
