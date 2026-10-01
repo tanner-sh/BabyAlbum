@@ -7,6 +7,7 @@
 //   照片和视频的剩余时间用相邻两次统计之间的下降速度估算（视频要整个读一遍，比照片慢得多）
 
 import type { FastifyBaseLogger } from 'fastify';
+import { settings } from './db.ts';
 import { immichConnected } from './immich-link.ts';
 import { immich } from './immich.ts';
 
@@ -36,6 +37,20 @@ const samples: Sample[] = [];
 const counts: Count[] = [];
 let counting = false;
 
+// 采样记录存在数据库里，重启（比如升级）后不用重新等很久才能算出速度
+const STORE_KEY = 'import.progress';
+function load() {
+  try {
+    const saved = JSON.parse(settings.get(STORE_KEY) ?? 'null') as { samples: Sample[]; counts: Count[] } | null;
+    const fresh = <T extends { t: number }>(list: T[] = []) => list.filter((x) => x.t >= Date.now() - KEEP_MS);
+    samples.push(...fresh(saved?.samples));
+    counts.push(...fresh(saved?.counts));
+  } catch {
+    // 记录损坏就重新开始
+  }
+}
+const save = () => settings.set(STORE_KEY, JSON.stringify({ samples, counts }));
+
 /** 每小时处理多少个：最近一段时间里剩余数量的下降速度。数量在增加（还在扫描新文件）或没变化时返回 null */
 function ratePerHour<T>(points: T[], t: (p: T) => number, value: (p: T) => number, windowMs = RATE_WINDOW_MS): number | null {
   if (points.length < 2) return null;
@@ -58,6 +73,7 @@ async function sample(log: FastifyBaseLogger) {
     for (const q of queues) remaining[q.name] = q.statistics.active + q.statistics.waiting + q.statistics.delayed;
     samples.push({ t: Date.now(), remaining });
     while (samples.length && samples[0].t < Date.now() - KEEP_MS) samples.shift();
+    save();
 
     const importing = [immich.QueueName.Library, immich.QueueName.Sidecar, immich.QueueName.MetadataExtraction].some((q) => remaining[q] > 0);
     const lastCount = counts.at(-1);
@@ -89,6 +105,7 @@ async function countPending(log: FastifyBaseLogger) {
     }
     counts.push({ t: Date.now(), image, video });
     while (counts.length && counts[0].t < Date.now() - KEEP_MS) counts.shift();
+    save();
   } catch (err) {
     log.warn({ err }, '统计导入进度失败');
   } finally {
@@ -97,6 +114,7 @@ async function countPending(log: FastifyBaseLogger) {
 }
 
 export function startImportProgress(log: FastifyBaseLogger) {
+  load();
   void sample(log);
   setInterval(() => void sample(log), SAMPLE_MS).unref();
 }
