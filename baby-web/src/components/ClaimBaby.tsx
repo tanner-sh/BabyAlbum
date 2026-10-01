@@ -65,7 +65,7 @@ export function ClaimBanner() {
   );
 }
 
-function ClaimModal({ personId, assets, thumbnailUrl, onClose }: { personId: string; assets: number; thumbnailUrl: string; onClose: () => void }) {
+export function ClaimModal({ personId, assets, thumbnailUrl, onClose }: { personId: string; assets: number; thumbnailUrl: string; onClose: () => void }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [name, setName] = useState('');
@@ -203,10 +203,13 @@ export function MergeHint({ baby }: { baby: Baby }) {
 
   return (
     <>
-      <div className="notice notice-info">
-        <Merge size={18} />
+      <div className="notice notice-info notice-compact">
+        <Merge size={16} />
         <button className="link-btn" onClick={() => setOpen(true)}>
-          还有 {candidates.length} 个没命名的人物可能也是{baby.name}（比如更小时候），点这里看看要不要合并
+          {candidates.length} 个人物可能也是{baby.name}
+        </button>
+        <button className="link-btn notice-action" onClick={() => setOpen(true)}>
+          看看 ›
         </button>
         <button className="icon-btn" onClick={() => setHidden(true)} aria-label="先不看">
           <X size={16} />

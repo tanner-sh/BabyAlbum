@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, MinusCircle, RefreshCw, XCircle } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router';
 import { get, request, type HealthCheck, type HealthReport } from '../../api';
 import { ErrorBox, Spinner } from '../../components/ui';
 
@@ -70,20 +69,5 @@ function HealthRow({ check }: { check: HealthCheck }) {
         {check.hint && <span className="muted small">{check.hint}</span>}
       </div>
     </li>
-  );
-}
-
-/** 首页提示（管理员）：系统有严重问题 */
-export function HealthBanner() {
-  const health = useHealth();
-  const errors = health.data?.checks.filter((c) => c.status === 'error') ?? [];
-  if (!errors.length) return null;
-  return (
-    <Link to="/admin/health" className="notice notice-error">
-      <XCircle size={18} />
-      <span>
-        系统有问题：{errors.map((c) => `${c.label}（${c.message}）`).join('；')} →
-      </span>
-    </Link>
   );
 }

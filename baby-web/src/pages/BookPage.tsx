@@ -40,7 +40,7 @@ function Book({ baby }: { baby: Baby }) {
   return (
     <div className="book">
       <div className="book-toolbar no-print">
-        <Link className="btn" to={`/baby/${baby.id}?tab=journal`}>
+        <Link className="btn" to={`/baby/${baby.id}?tab=records&view=journal`}>
           <ArrowLeft size={16} />
           返回
         </Link>

@@ -1,13 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby as BabyIcon, BookImage, CalendarHeart, Columns2, Plus } from 'lucide-react';
+import { Baby as BabyIcon, CalendarHeart, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useNavigate, useOutletContext } from 'react-router';
 import { get, request, thumbUrl, useAlbum, useBabies, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
 import { ClaimBanner, SexPicker } from '../components/ClaimBaby';
-import { FamilyHint } from '../components/FamilyIntro';
 import { RecentInteractions } from '../components/RecentInteractions';
-import { HealthBanner } from './admin/HealthPage';
+import { TodoCard } from '../components/TodoCard';
 import { ReviewBanner } from '../components/ReviewTab';
 import { Avatar, Empty, ErrorBox, Modal, Spinner } from '../components/ui';
 import { formatDate } from '../format';
@@ -23,58 +22,51 @@ export function HomePage() {
 
   return (
     <>
-      {isAdmin && <HealthBanner />}
-      {isAdmin && <ClaimBanner />}
+      {isAdmin && <TodoCard />}
       {babies.data.length === 0 ? (
-        <Empty icon={<BabyIcon size={48} />} title="欢迎使用宝宝相册">
-          {isAdmin ? (
-            <>
-              <p>先在“管理 → 照片库”里添加存储、导入照片，等人脸识别完成后，在这里选出宝宝的脸，之后所有有宝宝的照片都会按年龄自动整理好。</p>
-              <button className="btn btn-primary" onClick={() => setAdding(true)}>
-                <Plus size={16} />
-                添加宝宝
-              </button>
-            </>
-          ) : (
-            <p>管理员还没有添加宝宝，或者还没有给你开放查看权限。</p>
-          )}
-        </Empty>
+        <>
+          {/* 还没有宝宝时，主动问照片最多的人物是不是宝宝 */}
+          {isAdmin && <ClaimBanner />}
+          <Empty icon={<BabyIcon size={48} />} title="欢迎使用宝宝相册">
+            {isAdmin ? (
+              <>
+                <p>先在“我的 → 管理 → 照片库”里添加存储、导入照片，等人脸识别完成后，在这里选出宝宝的脸，之后所有有宝宝的照片都会按年龄自动整理好。</p>
+                <button className="btn btn-primary" onClick={() => setAdding(true)}>
+                  <Plus size={16} />
+                  添加宝宝
+                </button>
+              </>
+            ) : (
+              <p>管理员还没有添加宝宝，或者还没有给你开放查看权限。</p>
+            )}
+          </Empty>
+        </>
       ) : (
         <>
           <div className="baby-cards">
             {babies.data.map((b) => (
               <Link key={b.id} to={`/baby/${b.id}`} className="baby-card">
-                <Avatar baby={b} size={72} />
+                <Avatar baby={b} size={56} />
                 <div>
                   <h2>{b.name}</h2>
                   <p className="baby-age">{b.ageLabel}</p>
-                  <p className="muted">{formatDate(b.birthday)} 出生</p>
+                  <p className="muted small">{formatDate(b.birthday)} 出生</p>
                 </div>
               </Link>
             ))}
-            {isAdmin && (
-              <button className="baby-card baby-card-add" onClick={() => setAdding(true)}>
-                <Plus size={28} />
-                添加宝宝
-              </button>
-            )}
           </div>
-          {isAdmin && <FamilyHint />}
-          <nav className="quick-links">
-            <Link to="/albums">
-              <BookImage size={18} /> 相册
-            </Link>
-            <Link to="/compare">
-              <Columns2 size={18} /> 同龄对比
-            </Link>
-          </nav>
-          <RecentInteractions />
+          {isAdmin && (
+            <button className="link-btn add-baby" onClick={() => setAdding(true)}>
+              <Plus size={14} /> 添加宝宝
+            </button>
+          )}
           {babies.data.map((b) => (
             <ReviewBanner key={`review-${b.id}`} baby={b} />
           ))}
           {babies.data.map((b) => (
             <TodayMemories key={b.id} baby={b} />
           ))}
+          <RecentInteractions />
         </>
       )}
       {adding && <AddBabyModal onClose={() => setAdding(false)} />}
@@ -89,7 +81,7 @@ function TodayMemories({ baby }: { baby: Baby }) {
   if (!first) return null;
   const count = memories.data!.reduce((n, e) => n + e.items.length, 0);
   return (
-    <Link to={`/baby/${baby.id}?tab=memories`} className="memory-banner">
+    <Link to={`/baby/${baby.id}?tab=review&view=memories`} className="memory-banner">
       <div className="memory-text">
         <CalendarHeart size={20} />
         <div>

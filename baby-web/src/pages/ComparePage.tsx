@@ -20,12 +20,24 @@ const PRESETS = [
 
 const monthsLabel = (m: number) => (m === 0 ? '新生儿' : m < 12 ? `${m} 个月` : m % 12 ? `${Math.floor(m / 12)} 岁 ${m % 12} 个月` : `${m / 12} 岁`);
 
-/** 同龄对比：几个宝宝在同一个月龄时的照片并排看 */
+/** 同龄对比：几个宝宝在同一个月龄时的照片并排看。在宝宝页“回顾”里，旧的 /compare 地址也还能用 */
 export function ComparePage() {
+  return <CompareView />;
+}
+
+export function CompareView() {
   const babies = useBabies();
   const [params, setParams] = useSearchParams();
   const months = Math.max(0, Number(params.get('m') ?? 12) || 0);
-  const setMonths = (m: number) => setParams({ m: String(Math.max(0, m)) }, { replace: true });
+  // 只改月龄，不动地址里的其他参数（在宝宝页里还有 tab、view）
+  const setMonths = (m: number) =>
+    setParams(
+      (p) => {
+        p.set('m', String(Math.max(0, m)));
+        return p;
+      },
+      { replace: true },
+    );
 
   if (babies.isPending) return <Spinner />;
   if (babies.isError) return <ErrorBox error={babies.error} />;

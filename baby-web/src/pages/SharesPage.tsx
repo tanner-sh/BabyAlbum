@@ -3,6 +3,7 @@ import { BookImage, Check, Copy, Download, ExternalLink, Link2, Lock, MessageCir
 import { useState } from 'react';
 import { Navigate, useOutletContext } from 'react-router';
 import { canEdit, get, request, useAlbums, useBabies, type Me, type Share } from '../api';
+import { FamilyTabs } from '../components/SectionTabs';
 import { CopyButton, Empty, ErrorBox, Modal, Spinner, Toggle } from '../components/ui';
 import { formatDate } from '../format';
 
@@ -54,13 +55,9 @@ function SharesList() {
 
   return (
     <>
+      <FamilyTabs />
       <div className="section-actions">
-        <div>
-          <h1>家人分享</h1>
-          <p className="muted">
-            生成一个链接发给家人，不用注册登录就能看宝宝的照片。对方只能看到有宝宝的照片，不能修改任何内容。可以加访问密码；给长辈的可以打开“长辈模式”，字和照片都更大。
-          </p>
-        </div>
+        <p className="muted">发给家人的链接，不用注册就能看，只能看不能改。给长辈的可以打开“长辈模式”，字和照片更大。</p>
         <button className="btn btn-primary" onClick={() => setEditing('new')} disabled={!babies.data.length}>
           <Plus size={16} />
           新建分享

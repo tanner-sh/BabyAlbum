@@ -1,14 +1,20 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { BookImage, Columns2, House, Images, KeyRound, LogOut, Search, Settings, Share2 } from 'lucide-react';
+import { CircleUser, House, Images, Search, Users } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router';
-import { AlbumContext, ApiError, canEdit, canSeeAllPhotos, request, ROLE_LABELS, useMe, useSetupStatus } from '../api';
+import { AlbumContext, ApiError, canEdit, canSeeAllPhotos, useMe, useSetupStatus } from '../api';
 import { Spinner } from '../components/ui';
+
+/** 哪些页面属于导航上的哪一项 */
+const SECTIONS = {
+  photos: ['/photos', '/albums', '/map'],
+  family: ['/shares', '/messages', '/members'],
+  me: ['/account', '/admin'],
+};
+const inSection = (path: string, prefixes: string[]) => prefixes.some((p) => path === p || path.startsWith(`${p}/`));
 
 export function Layout() {
   const setup = useSetupStatus();
   const me = useMe();
   const location = useLocation();
-  const queryClient = useQueryClient();
 
   if (setup.data?.needsSetup) return <Navigate to="/setup" replace />;
   if (me.isPending || setup.isPending) return <Spinner />;
@@ -16,12 +22,8 @@ export function Layout() {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
   const user = me.data!;
-
-  async function logout() {
-    await request('POST', '/api/auth/logout');
-    queryClient.clear();
-    window.location.href = '/login';
-  }
+  const path = location.pathname;
+  const active = (section: keyof typeof SECTIONS) => (inSection(path, SECTIONS[section]) ? 'active' : '');
 
   return (
     // 只读成员看不到任何编辑按钮
@@ -32,53 +34,28 @@ export function Layout() {
             <img src="/favicon.svg" alt="" width={28} height={28} />
             宝宝相册
           </Link>
+          {/* 只有 5 个入口；手机上在底部 */}
           <nav className="topnav">
             <NavLink to="/" end>
-              <House size={18} />
+              <House size={20} />
               <span>首页</span>
             </NavLink>
-            {canSeeAllPhotos(user) && (
-              <NavLink to="/photos">
-                <Images size={18} />
-                <span className="wide-only">全部照片</span>
-                <span className="narrow-only">照片</span>
-              </NavLink>
-            )}
-            <NavLink to="/albums">
-              <BookImage size={18} />
-              <span>相册</span>
+            <NavLink to={canSeeAllPhotos(user) ? '/photos' : '/albums'} className={active('photos')}>
+              <Images size={20} />
+              <span>照片</span>
             </NavLink>
             <NavLink to="/search">
-              <Search size={18} />
-              <span className="wide-only">搜索 · 地图</span>
-              <span className="narrow-only">搜索</span>
+              <Search size={20} />
+              <span>搜索</span>
             </NavLink>
-            {/* 手机底栏放不下，同龄对比的入口在首页 */}
-            <NavLink to="/compare" className="wide-only-link">
-              <Columns2 size={18} />
-              <span className="wide-only">同龄对比</span>
-              <span className="narrow-only">对比</span>
+            <NavLink to={canEdit(user) ? '/shares' : '/messages'} className={active('family')}>
+              <Users size={20} />
+              <span>家人</span>
             </NavLink>
-            {canEdit(user) && (
-              <NavLink to="/shares">
-                <Share2 size={18} />
-                <span>分享</span>
-              </NavLink>
-            )}
-            {user.role === 'admin' && (
-              <NavLink to="/admin">
-                <Settings size={18} />
-                <span>管理</span>
-              </NavLink>
-            )}
-            <NavLink to="/account" className="user-chip" title={`${user.displayName}（${ROLE_LABELS[user.role]}）· 修改密码`}>
-              <KeyRound size={16} />
-              <span className="wide-only">{user.displayName}</span>
-              <span className="narrow-only">我的</span>
+            <NavLink to="/account" className={active('me')} title={user.displayName}>
+              <CircleUser size={20} />
+              <span>我的</span>
             </NavLink>
-            <button className="icon-btn" onClick={logout} title="退出登录" aria-label="退出登录">
-              <LogOut size={18} />
-            </button>
           </nav>
         </header>
         <main className="page">

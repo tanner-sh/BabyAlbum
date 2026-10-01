@@ -83,8 +83,9 @@ await page.type('input[autocomplete=current-password]', creds.password);
 await page.click('button.btn-primary');
 await page.waitForSelector('.baby-card');
 // 要先统计每个人物和宝宝同框的次数，提示会晚一点出来
-const familyHint = await page.waitForFunction(() => document.body.innerText.includes('经常和宝宝一起出现的人还没有名字'), { timeout: 20000 }).then(() => true, () => false);
-check('首页提示给家人起名字', familyHint);
+const familyHint = await page.waitForFunction(() => document.querySelector('.todo-card')?.innerText.includes('常和宝宝一起出现的人还没有名字'), { timeout: 20000 }).then(() => true, () => false);
+check('首页“需要处理的事”里提示给家人起名字', familyHint);
+check('已经有宝宝时不再问“是宝宝吗”（和起名字的提示矛盾）', !(await text(page)).includes('是宝宝吗'));
 
 // ---- 认识家里人
 await page.goto(`${BASE}/admin/people`, { waitUntil: 'networkidle0' });
@@ -217,7 +218,7 @@ check('首页“家人的点赞和留言”里有访客的留言', recent.some((
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.recent-social', { timeout: 10000 });
 check('首页显示家人的留言', (await text(page)).includes('真可爱！'));
-await page.evaluate(() => document.querySelector('.recent-social a').click());
+await page.evaluate(() => document.querySelector('.recent-social li a').click());
 await page.waitForSelector('.lightbox .social', { timeout: 10000 });
 check('点留言打开那张照片和留言', (await page.$eval('.lightbox .social', (e) => e.innerText)).includes('真可爱！'));
 

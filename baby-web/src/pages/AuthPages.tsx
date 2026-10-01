@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, BellOff, LogOut, Share, Smartphone, SquarePlus } from 'lucide-react';
+import { Bell, BellOff, KeyRound, LogOut, Settings, Share, Smartphone, SquarePlus } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router';
 import { get, request, ROLE_HINTS, ROLE_LABELS, useMe, useSetupStatus, type NotifyPrefs, type Role, type SetupStatus } from '../api';
 import { Spinner, Toggle } from '../components/ui';
+import { useHealth } from './admin/HealthPage';
 import { canPromptInstall, currentSubscription, disablePush, enablePush, isIos, isStandalone, onInstallAvailable, promptInstall, pushSupport } from '../pwa';
 
 // 首次设置、登录、邀请注册、修改密码
@@ -201,29 +202,76 @@ export function AccountPage() {
     window.location.href = '/login';
   }
 
+  const user = me.data;
   return (
     <div className="narrow">
+      {user && (
+        <section className="me-card">
+          <span className="me-avatar">{user.displayName.slice(-1)}</span>
+          <div>
+            <strong>{user.displayName}</strong>
+            <span className="muted">
+              {user.username} · {ROLE_LABELS[user.role]}
+            </span>
+          </div>
+        </section>
+      )}
+      {user?.role === 'admin' && <AdminEntry />}
       <InstallSection />
-      <NotificationSection isAdmin={me.data?.role === 'admin'} />
-      <h1>修改密码</h1>
-      <form className="form card" onSubmit={submit}>
-        <Field label="当前密码">
-          <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
-        </Field>
-        <Field label="新密码（至少 8 位）">
-          <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required />
-        </Field>
-        {error && <div className="error-box">{error}</div>}
-        {done && <div className="success-box">密码已修改，其他设备上的登录已失效</div>}
-        <button className="btn btn-primary" disabled={busy}>
-          保存
-        </button>
-      </form>
+      <NotificationSection isAdmin={user?.role === 'admin'} />
+      <details className="card account-section">
+        <summary>
+          <KeyRound size={18} /> 修改密码
+        </summary>
+        <form className="form" onSubmit={submit}>
+          <Field label="当前密码">
+            <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
+          </Field>
+          <Field label="新密码（至少 8 位）">
+            <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required />
+          </Field>
+          {error && <div className="error-box">{error}</div>}
+          {done && <div className="success-box">密码已修改，其他设备上的登录已失效</div>}
+          <button className="btn btn-primary" disabled={busy}>
+            保存
+          </button>
+        </form>
+      </details>
       <button className="btn btn-block logout-btn" onClick={logout}>
         <LogOut size={16} />
         退出登录
       </button>
     </div>
+  );
+}
+
+const ADMIN_LINKS = [
+  { to: '/admin/library', label: '照片库', hint: '存储、导入进度' },
+  { to: '/admin/people', label: '人物', hint: '宝宝、家人、合并' },
+  { to: '/admin/tidy', label: '整理', hint: '重复的照片' },
+  { to: '/admin/health', label: '系统状态', hint: '' },
+  { to: '/admin/settings', label: '系统设置', hint: '' },
+];
+
+/** 管理员：管理后台的入口（底部导航只有 5 项，管理放在“我的”里） */
+function AdminEntry() {
+  const health = useHealth();
+  const problems = health.data?.checks.filter((c) => c.status === 'error' || c.status === 'warn').length ?? 0;
+  return (
+    <section className="card account-section admin-entry">
+      <h2>
+        <Settings size={18} /> 管理
+      </h2>
+      <div className="admin-links">
+        {ADMIN_LINKS.map((l) => (
+          <Link key={l.to} to={l.to}>
+            <strong>{l.label}</strong>
+            <span className="muted small">{l.to === '/admin/health' ? (problems ? `${problems} 项需要注意` : '一切正常') : l.hint}</span>
+            {l.to === '/admin/health' && problems > 0 && <span className="dot" />}
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -11,11 +11,16 @@ export function RecentInteractions() {
   if (!list.length) return null;
   return (
     <section className="recent-social">
-      <h3>
-        <MessageCircle size={18} /> 家人的点赞和留言
-      </h3>
+      <header className="group-header">
+        <h3>
+          <MessageCircle size={18} /> 家人的留言
+        </h3>
+        <Link to="/messages" className="muted small">
+          查看全部 ›
+        </Link>
+      </header>
       <ul>
-        {list.slice(0, 6).map((r, i) => (
+        {list.slice(0, 3).map((r, i) => (
           <li key={`${r.assetId}-${r.createdAt}-${i}`}>
             <Link to={`/asset/${r.assetId}`}>
               <img src={thumbUrl(album, r.assetId)} alt="" loading="lazy" />

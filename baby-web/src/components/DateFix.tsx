@@ -25,11 +25,12 @@ export function DateIssuesBanner({ baby }: { baby: Baby }) {
   const what = videos === 0 ? '张照片' : videos === count ? '个视频' : `个照片和视频（其中视频 ${videos} 个）`;
   return (
     <>
-      <button className="notice" onClick={() => setOpen(true)}>
-        <TriangleAlert size={18} />
+      <button className="notice notice-compact" onClick={() => setOpen(true)} title="早于出生日期，或者照片和同一文件夹的其他照片差得很远：通常是影楼相册设计页、相机时间没调，或者视频没有拍摄时间">
+        <TriangleAlert size={16} />
         <span>
-          有 <strong>{count}</strong> {what}的日期不对（早于{baby.name}出生，或者照片和同一文件夹的其他照片差得很远），通常是影楼相册设计页、相机时间没调，或者视频没有拍摄时间。点这里更正
+          有 <strong>{count}</strong> {what}的日期不对
         </span>
+        <span className="notice-action">更正 ›</span>
       </button>
       {open && <DateIssuesModal baby={baby} groups={issues.data!} onClose={() => setOpen(false)} />}
     </>

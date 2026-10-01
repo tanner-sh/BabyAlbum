@@ -1,16 +1,28 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Link2, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
-import { useOutletContext } from 'react-router';
+import { Navigate, useOutletContext } from 'react-router';
 import { get, request, ROLE_HINTS, ROLE_LABELS, useBabies, type AdminInvite, type AdminUser, type Me, type Role } from '../../api';
+import { FamilyTabs } from '../../components/SectionTabs';
 import { BabyAccessPicker, CopyButton, ErrorBox, Modal, Spinner, Toggle } from '../../components/ui';
 import { formatDate, formatDateTime } from '../../format';
 
 const ROLES: Role[] = ['admin', 'member', 'viewer'];
 const inviteUrl = (token: string) => `${window.location.origin}/invite/${token}`;
 
-/** 成员管理：账号、角色、能看哪些宝宝、邀请链接 */
+/** 成员管理（在“家人”里，只有管理员能进）：账号、角色、能看哪些宝宝、邀请链接 */
 export function MembersPage() {
+  const me = useOutletContext<Me>();
+  if (me.role !== 'admin') return <Navigate to="/" replace />;
+  return (
+    <>
+      <FamilyTabs />
+      <MembersList />
+    </>
+  );
+}
+
+function MembersList() {
   const me = useOutletContext<Me>();
   const users = useQuery({ queryKey: ['admin', 'users'], queryFn: () => get<AdminUser[]>('/api/admin/users') });
   const invites = useQuery({ queryKey: ['admin', 'invites'], queryFn: () => get<AdminInvite[]>('/api/admin/invites') });
@@ -45,10 +57,7 @@ export function MembersPage() {
   return (
     <div className="admin-page">
       <div className="section-actions">
-        <div>
-          <h2>成员</h2>
-          <p className="muted">管理员：{ROLE_HINTS.admin}；家人：{ROLE_HINTS.member}；只读：{ROLE_HINTS.viewer}。</p>
-        </div>
+        <p className="muted">家人的账号。管理员：{ROLE_HINTS.admin}；家人：{ROLE_HINTS.member}；只读：{ROLE_HINTS.viewer}。</p>
         <div className="share-actions">
           <button className="btn btn-primary" onClick={() => setInviting(true)}>
             <Link2 size={16} />

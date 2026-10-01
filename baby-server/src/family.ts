@@ -83,7 +83,8 @@ export async function unnamedPeople(limit = 12) {
     candidates.map(async (p) => {
       const [assets, withBaby] = await Promise.all([
         immich.getPersonStatistics({ id: p.id }).then((s) => s.assets).catch(() => 0),
-        Promise.all(babies.map((b) => together(b.immichPersonId, p.id).catch(() => 0))).then((n) => n.reduce((x, y) => x + y, 0)),
+        // 和几个宝宝都同框的照片不能重复算，取和某一个宝宝同框最多的数
+        Promise.all(babies.map((b) => together(b.immichPersonId, p.id).catch(() => 0))).then((n) => Math.max(0, ...n)),
       ]);
       return { id: p.id, assets, withBaby, thumbnailUrl: `/api/people/${p.id}/thumbnail` };
     }),

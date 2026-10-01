@@ -300,11 +300,12 @@ export async function manageRoutes(app: FastifyInstance) {
 
   // ---------- 最近的家人互动（点赞、留言），首页显示
   app.get('/api/social/recent', async (req) => {
-    const recent = social.recent(60);
+    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(100).default(12) }).parse(req.query);
+    const recent = social.recent(limit * 3);
     const visible = await Promise.all(recent.map(async (r) => ((await canAccessAsset(req.user!, r.assetId)) ? r : null)));
     return visible
       .filter((r) => r !== null)
-      .slice(0, 12)
+      .slice(0, limit)
       .map((r) => ({ kind: r.kind, assetId: r.assetId, name: r.name, text: r.text, createdAt: r.createdAt, mine: r.actor === `u:${req.user!.id}` }));
   });
 

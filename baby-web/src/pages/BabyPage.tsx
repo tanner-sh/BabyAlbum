@@ -22,11 +22,13 @@ export function BabyPage() {
 
   return (
     <>
-      <header className="baby-header">
-        <Avatar baby={baby} size={64} />
+      <header className="baby-header compact">
+        <Avatar baby={baby} size={52} />
         <div>
-          <h1>{baby.name}</h1>
-          <p className="baby-age">今天 {baby.ageLabel}</p>
+          <h1>
+            {baby.name}
+            <span className="baby-age">{baby.ageLabel}</span>
+          </h1>
           <p className="muted">{formatDate(baby.birthday)} 出生</p>
         </div>
         {me.role === 'admin' && (
@@ -35,9 +37,15 @@ export function BabyPage() {
           </button>
         )}
       </header>
-      {canEdit(me) && <DateIssuesBanner baby={baby} />}
-      {me.role === 'admin' && <MergeHint baby={baby} />}
-      <BabyView baby={baby} />
+      <BabyView
+        baby={baby}
+        photosExtra={
+          <>
+            {canEdit(me) && <DateIssuesBanner baby={baby} />}
+            {me.role === 'admin' && <MergeHint baby={baby} />}
+          </>
+        }
+      />
       {editing && <EditBabyModal baby={baby} onClose={() => setEditing(false)} />}
     </>
   );

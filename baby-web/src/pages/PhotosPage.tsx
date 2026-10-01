@@ -5,6 +5,7 @@ import { canSeeAllPhotos, usePhotos, type AlbumItem, type Me } from '../api';
 import { Lightbox } from '../components/Lightbox';
 import { SelectionBar, useSelection } from '../components/AlbumPicker';
 import { PhotoGrid } from '../components/PhotoGrid';
+import { PhotosTabs } from '../components/SectionTabs';
 import { Empty, ErrorBox, Spinner } from '../components/ui';
 
 /** 全部照片：照片库里的所有照片和视频，按月份分组。导入时处理到哪就显示到哪 */
@@ -51,19 +52,16 @@ function AllPhotos({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
+      <PhotosTabs />
       <div className="section-actions">
-        <div>
-          <h1>全部照片</h1>
-          <p className="muted">
-            照片库里的所有照片和视频，包括没有宝宝的。新导入的照片处理好后会出现在这里
-            {isAdmin && (
-              <>
-                ，进度见 <Link to="/admin/library">管理 → 照片库</Link>
-              </>
-            )}
-            。
-          </p>
-        </div>
+        <p className="muted">
+          照片库里的所有照片和视频，导入时处理好一张出现一张
+          {isAdmin && (
+            <>
+              （<Link to="/admin/library">导入进度</Link>）
+            </>
+          )}
+        </p>
         {!selection.selected && (
           <button className="btn btn-small" onClick={selection.start}>
             选择

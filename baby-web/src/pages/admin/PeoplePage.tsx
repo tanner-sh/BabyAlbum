@@ -18,9 +18,7 @@ export function PeoplePage() {
       <div className="section-actions">
         <div>
           <h2>人物</h2>
-          <p className="muted">
-            人脸识别找出的人物，按照片数量排序。宝宝从小到大长相变化很大，可能被识别成好几个人物，点开后可以合并到一起。
-          </p>
+          <p className="muted">按照片数量排序，点开可以命名、设为宝宝、合并同一个人。</p>
         </div>
         <label className="inline-check">
           <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />

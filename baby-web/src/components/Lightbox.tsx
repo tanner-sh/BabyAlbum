@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookImage, CalendarClock, ChevronLeft, ChevronRight, Download, Flag, Heart, Info, MessageCircle, X } from 'lucide-react';
+import { BookImage, CalendarClock, ChevronLeft, ChevronRight, Download, Flag, Heart, Info, MessageCircle, MoreHorizontal, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { get, liveUrl, originalUrl, request, thumbUrl, useAlbum, useAssetInfo, videoUrl, type AlbumItem } from '../api';
 import { formatBytes, formatDateTime } from '../format';
@@ -25,6 +25,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
   const item = items[index];
   const [showInfo, setShowInfo] = useState(false);
   const [showSocial, setShowSocial] = useState(!!initialSocial);
+  const [showMenu, setShowMenu] = useState(false);
   const [addingToAlbum, setAddingToAlbum] = useState(false);
   const [editingDate, setEditingDate] = useState(false);
   const social = useSocial(items[index]?.id ?? '');
@@ -41,7 +42,14 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
     const onKey = (e: KeyboardEvent) => {
       // 弹窗、输入框里按键时不切换照片
       if (editingDate || addingToAlbum || (e.target as HTMLElement).closest('input, textarea')) return;
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        // 先关菜单、面板，再关大图
+        if (showMenu) setShowMenu(false);
+        else if (showInfo || showSocial) {
+          setShowInfo(false);
+          setShowSocial(false);
+        } else onClose();
+      }
       if (e.key === 'ArrowLeft') go(-1);
       if (e.key === 'ArrowRight') go(1);
     };
@@ -85,25 +93,11 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
           <strong>{item.age?.label ?? formatDateTime(item.takenAt, false)}</strong>
           <span>{item.age ? formatDateTime(item.takenAt) : item.fileName}</span>
         </div>
+        {/* 常用的两个放在外面，其余的放进“更多” */}
         <div className="lightbox-actions">
           {!album.readOnly && (
             <button className={`icon-btn light ${isFavorite ? 'is-fav' : ''}`} onClick={toggleFavorite} aria-label={isFavorite ? '取消收藏' : '收藏'}>
-              <Heart size={20} fill={isFavorite ? 'currentColor' : 'none'} />
-            </button>
-          )}
-          {onMilestone && (
-            <button className="icon-btn light" onClick={() => onMilestone(item)} aria-label="记为里程碑" title="记为里程碑">
-              <Flag size={20} />
-            </button>
-          )}
-          {!album.readOnly && (
-            <button className="icon-btn light" onClick={() => setEditingDate(true)} aria-label="修改日期" title="修改日期">
-              <CalendarClock size={20} />
-            </button>
-          )}
-          {!album.readOnly && album.base === '/api' && (
-            <button className="icon-btn light" onClick={() => setAddingToAlbum(true)} aria-label="加入相册" title="加入相册">
-              <BookImage size={20} />
+              <Heart size={22} fill={isFavorite ? 'currentColor' : 'none'} />
             </button>
           )}
           {album.interact && (
@@ -116,27 +110,50 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
               aria-label="点赞留言"
               title="点赞留言"
             >
-              <MessageCircle size={20} />
+              <MessageCircle size={22} />
               {social.data && social.data.likes.length + social.data.comments.length > 0 && (
                 <span className="count">{social.data.likes.length + social.data.comments.length}</span>
               )}
             </button>
           )}
-          {album.allowDownload && (
-            <a className="icon-btn light" href={originalUrl(album, item.id)} aria-label="下载原图" title="下载原图">
-              <Download size={20} />
-            </a>
-          )}
-          <button
-            className={`icon-btn light ${showInfo ? 'active' : ''}`}
-            onClick={() => {
-              setShowInfo((v) => !v);
-              setShowSocial(false);
-            }}
-            aria-label="详细信息"
-          >
-            <Info size={20} />
-          </button>
+          <div className="menu-wrap">
+            <button className={`icon-btn light ${showMenu ? 'active' : ''}`} onClick={() => setShowMenu((v) => !v)} aria-label="更多" aria-expanded={showMenu}>
+              <MoreHorizontal size={22} />
+            </button>
+            {showMenu && (
+              <div className="menu" role="menu" onClick={() => setShowMenu(false)}>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setShowInfo(true);
+                    setShowSocial(false);
+                  }}
+                >
+                  <Info size={18} /> 详细信息
+                </button>
+                {onMilestone && (
+                  <button role="menuitem" onClick={() => onMilestone(item)}>
+                    <Flag size={18} /> 记为里程碑
+                  </button>
+                )}
+                {!album.readOnly && album.base === '/api' && (
+                  <button role="menuitem" onClick={() => setAddingToAlbum(true)}>
+                    <BookImage size={18} /> 加入相册
+                  </button>
+                )}
+                {!album.readOnly && (
+                  <button role="menuitem" onClick={() => setEditingDate(true)}>
+                    <CalendarClock size={18} /> 修改日期
+                  </button>
+                )}
+                {album.allowDownload && (
+                  <a role="menuitem" href={originalUrl(album, item.id)}>
+                    <Download size={18} /> 下载原图
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -154,6 +171,9 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
 
       {showInfo && (
         <aside className="lightbox-info">
+          <button className="icon-btn light panel-close" onClick={() => setShowInfo(false)} aria-label="关闭详细信息">
+            <X size={18} />
+          </button>
           {info.data ? (
             <dl>
               {info.data.babies.map((b) => (
@@ -195,6 +215,9 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
 
       {showSocial && (
         <aside className="lightbox-info lightbox-social">
+          <button className="icon-btn light panel-close" onClick={() => setShowSocial(false)} aria-label="关闭留言">
+            <X size={18} />
+          </button>
           <SocialPanel key={item.id} assetId={item.id} />
         </aside>
       )}

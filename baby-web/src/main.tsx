@@ -14,6 +14,8 @@ import { AlbumPage, AlbumsPage } from './pages/AlbumsPage';
 import { AssetPage } from './pages/AssetPage';
 import { BookPage } from './pages/BookPage';
 import { HealthPage } from './pages/admin/HealthPage';
+import { MapPage } from './pages/MapPage';
+import { MessagesPage } from './pages/MessagesPage';
 import { SearchPage } from './pages/SearchPage';
 import { DuplicatesPage } from './pages/admin/DuplicatesPage';
 import { ComparePage } from './pages/ComparePage';
@@ -52,6 +54,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="baby/:id" element={<BabyPage />} />
             <Route path="baby/:id/book" element={<BookPage />} />
             <Route path="search" element={<SearchPage />} />
+            <Route path="map" element={<MapPage />} />
+            <Route path="messages" element={<MessagesPage />} />
+            <Route path="members" element={<MembersPage />} />
             <Route path="albums" element={<AlbumsPage />} />
             <Route path="albums/:id" element={<AlbumPage />} />
             <Route path="asset/:id" element={<AssetPage />} />
@@ -65,7 +70,8 @@ createRoot(document.getElementById('root')!).render(
               <Route path="people" element={<PeoplePage />} />
               <Route path="tidy" element={<DuplicatesPage />} />
               <Route path="health" element={<HealthPage />} />
-              <Route path="members" element={<MembersPage />} />
+              {/* 成员管理挪到了“家人”里，旧地址跳过去 */}
+              <Route path="members" element={<Navigate to="/members" replace />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Route>

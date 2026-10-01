@@ -6,6 +6,7 @@ import { canEdit, request, thumbUrl, useAlbum, useAlbumDetail, useAlbums, type M
 import { Lightbox } from '../components/Lightbox';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { useSelection } from '../components/AlbumPicker';
+import { PhotosTabs } from '../components/SectionTabs';
 import { Slideshow } from '../components/Slideshow';
 import { Empty, ErrorBox, Modal, Spinner } from '../components/ui';
 import { formatDate } from '../format';
@@ -24,11 +25,9 @@ export function AlbumsPage() {
 
   return (
     <>
+      <PhotosTabs />
       <div className="section-actions">
-        <div>
-          <h1>相册</h1>
-          <p className="muted">自己挑照片建的相册，比如“满月酒”“第一次旅行”。在照片上点“加入相册”，或者在时间线上点“选择”一次加很多张。每个相册可以单独分享。</p>
-        </div>
+        <p className="muted">自己挑照片建的相册，每个相册可以单独分享。在时间线上点“选择”可以一次加很多张。</p>
         {canEdit(me) && (
           <button className="btn btn-primary" onClick={() => setCreating(true)}>
             <Plus size={16} />

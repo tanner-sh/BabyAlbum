@@ -3308,3 +3308,491 @@ details summary {
 .spin {
   animation: spin 1s linear infinite;
 }
+
+/* ================================================================== 布局调整（2026-10）
+   导航 5 项；宝宝页 3 个标签 + 页内切换；首页“需要处理的事”；大图的“更多”菜单；手机上可点区域至少 40px */
+
+/* ---- 导航 */
+.topnav a {
+  padding: 8px 14px;
+}
+
+@media (max-width: 600px) {
+  /* 手机上导航在底部，顶栏只剩下占位，不再占 50px 高度 */
+  .app:not(.share-app) .topbar {
+    height: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+  }
+  .app:not(.share-app) .brand {
+    display: none;
+  }
+  .app:not(.share-app) .page {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  .app:not(.share-app) .tabs {
+    top: 0;
+  }
+  .app:not(.share-app) .topnav a {
+    font-size: 0.72rem;
+    gap: 3px;
+    padding: 6px 4px;
+  }
+}
+
+/* ---- 照片、家人：页面顶部的切换 */
+.section-tabs {
+  margin-bottom: 12px;
+}
+
+/* ---- 页内切换（回顾、记录里的小标签） */
+.subtabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin: 4px 0 14px;
+  scrollbar-width: none;
+}
+
+.subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.subtab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* ---- 宝宝页头部：紧凑 */
+.baby-header.compact {
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.baby-header.compact h1 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 1.35rem;
+}
+
+.baby-header.compact .baby-age {
+  font-size: 0.95rem;
+}
+
+.baby-header.compact p {
+  font-size: 0.85rem;
+}
+
+/* ---- 一行的提示 */
+.notice-compact {
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.notice-compact > span:first-of-type,
+.notice-compact > .link-btn:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-action {
+  flex: 0 0 auto !important;
+  color: var(--accent-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---- 回顾 */
+.review-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.review-bar select {
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+}
+
+.review-summary {
+  margin: 0 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 首页 */
+.baby-cards {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.baby-card {
+  padding: 14px 16px;
+  gap: 14px;
+}
+
+.baby-card h2 {
+  font-size: 1.15rem;
+}
+
+.add-baby {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.todo-card {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.todo-card.has-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.todo-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.todo-head strong {
+  flex: 1;
+}
+
+.todo-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.78rem;
+  line-height: 22px;
+  text-align: center;
+}
+
+.todo-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 6px;
+}
+
+.todo-card li a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.todo-card li a:hover {
+  background: var(--surface-2);
+}
+
+.todo-card li a span {
+  flex: 1;
+}
+
+.todo-card li.error svg:first-child {
+  color: var(--danger);
+}
+
+.todo-card li.warn svg:first-child {
+  color: #d97706;
+}
+
+.todo-card li.info svg:first-child {
+  color: var(--accent);
+}
+
+.recent-social .group-header {
+  justify-content: space-between;
+}
+
+/* ---- 家人的留言 */
+.message-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-list a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.message-list img {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.message-list a > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---- 我的 */
+.me-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.me-card > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.me-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.admin-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.admin-links a {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.admin-links .dot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d97706;
+}
+
+details.account-section summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+details.account-section[open] summary {
+  margin-bottom: 12px;
+}
+
+/* ---- 管理后台：手机上标签排成网格，不用左右滑 */
+@media (max-width: 600px) {
+  .admin-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    overflow: visible;
+  }
+  .admin-tabs .tab {
+    justify-content: center;
+    padding: 8px 4px;
+    font-size: 0.85rem;
+  }
+}
+
+/* ---- 大图 */
+.lightbox-title strong,
+.lightbox-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lightbox-actions {
+  align-items: center;
+  gap: 2px;
+}
+
+.lightbox-actions .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+.menu-wrap {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: rgb(38 34 32 / 96%);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 40%);
+}
+
+.menu > * {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: #fff;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.menu > *:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
+.panel-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.lightbox-info {
+  padding-top: 18px;
+}
+
+/* 手机上，详细信息、留言从底部弹出，不盖住照片的上半部分 */
+@media (max-width: 600px) {
+  .lightbox-info {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 60dvh;
+    overflow-y: auto;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 20px 16px max(16px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ---- 手指操作的设备上，可点的东西至少 40px */
+@media (pointer: coarse) {
+  .tab,
+  button.chip,
+  .subtab,
+  .btn,
+  .icon-btn {
+    min-height: 40px;
+  }
+  .icon-btn {
+    min-width: 40px;
+  }
+  .subtab {
+    min-height: 40px;
+  }
+  .btn-small {
+    min-height: 36px;
+  }
+}
+
+/* 只有一两个字的按钮（“哭”）也要好点 */
+@media (pointer: coarse) {
+  button.chip {
+    min-width: 44px;
+    justify-content: center;
+  }
+}
+
+/* 手机上页内切换去掉图标，4 个能一行放下 */
+@media (max-width: 600px) {
+  .subtab svg {
+    display: none;
+  }
+  .subtab {
+    padding: 6px 12px;
+  }
+}
+
+/* 大图是黑底，里面的输入框不跟随浅色主题 */
+.lightbox input,
+.lightbox textarea {
+  border-color: rgb(255 255 255 / 18%);
+  background: rgb(255 255 255 / 8%);
+  color: #fff;
+}
+
+.lightbox input::placeholder {
+  color: rgb(255 255 255 / 45%);
+}
+
+/* 面板打开时不显示页码（手机上会透出来） */
+.lightbox:has(.lightbox-info) .lightbox-counter {
+  display: none;
+}

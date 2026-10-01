@@ -45,27 +45,31 @@ async function login(page) {
   await login(page);
   const babyHref = await page.$eval('.baby-card', (a) => a.getAttribute('href'));
   await page.goto(`${BASE}${babyHref}`, { waitUntil: 'networkidle0' });
-  const tabs = await page.$$eval('.tab-panel, .tabs .tab', (els) => els.map((e) => e.textContent?.trim()));
-  check('宝宝页有 7 个标签', ['时间线', '回顾', '成长墙', '那年今日', '里程碑', '日记', '成长数据'].every((t) => tabs.includes(t)), tabs);
+  const tabs = await page.$$eval('.tabs .tab', (els) => els.map((e) => e.textContent?.trim()));
+  check('宝宝页 3 个标签', tabs.join('|') === '照片|回顾|记录', tabs);
 
   // ---- 回顾
   await clickText(page, '.tabs .tab', '回顾');
   await page.waitForSelector('.review-cell, .empty', { timeout: 60000 });
   check('回顾页有精选照片', (await page.$$('.review-cell')).length > 0);
-  await clickText(page, '.review-picker .chip', '出生第一年');
-  await page.waitForFunction(() => document.querySelector('.section-actions h2')?.textContent?.includes('出生第一年'), { timeout: 60000 });
+  const subtabs = await page.$$eval('.subtabs .subtab', (els) => els.map((e) => e.textContent?.trim()));
+  check('回顾里可以切换精选、成长墙、那年今日、同龄对比', subtabs.join('|') === '精选|成长墙|那年今日|同龄对比', subtabs);
+  await page.select('.review-bar select', 'year:0');
+  await page.waitForFunction(() => document.querySelector('.review-summary')?.textContent?.includes('从'), { timeout: 60000 });
   check('切换到年度回顾', true);
   check('回顾选择写进网址', page.url().includes('kind=year') && page.url().includes('index=0'), page.url());
   await page.screenshot({ path: `${SHOTS}desktop-review.png` });
-  await clickText(page, '.section-actions .btn-primary', '播放');
+  await clickText(page, '.review-bar .btn-primary', '播放');
   await page.waitForSelector('.slideshow');
   check('回顾可以播放', true);
   await page.keyboard.press('Escape');
 
   // ---- 成长数据
-  await clickText(page, '.tabs .tab', '成长数据');
+  await clickText(page, '.tabs .tab', '记录');
+  await page.waitForFunction(() => document.querySelector('.subtabs')?.innerText.includes('成长数据'));
+  await clickText(page, '.subtabs .subtab', '成长数据');
   await waitText(page, '记一笔');
-  check('换标签后去掉回顾参数', !page.url().includes('kind=') && page.url().includes('tab=measurements'), page.url());
+  check('换标签后去掉回顾参数', !page.url().includes('kind=') && page.url().includes('tab=records') && page.url().includes('view=measurements'), page.url());
   await clickText(page, '.btn-primary', '记一笔');
   await page.waitForSelector('.modal');
   const inputs = await page.$$('.modal input[inputmode=decimal]');
@@ -92,13 +96,13 @@ async function login(page) {
     ['身高', 'length'],
     ['头围', 'head'],
   ]) {
-    await clickText(page, '.tab-panel .tabs .tab', tab);
+    await clickText(page, '.tab-panel .subtabs .subtab', tab);
     await sleep(200);
     check(`切换到${tab}曲线`, (await page.$$('.growth-chart .median')).length === 1, label);
   }
 
   // ---- 日记
-  await clickText(page, '.tabs .tab', '日记');
+  await clickText(page, '.subtabs .subtab', '日记');
   await waitText(page, '写日记');
   await clickText(page, '.btn-primary', '写日记');
   await page.waitForSelector('.modal textarea');
@@ -175,7 +179,9 @@ async function login(page) {
   await sleep(300);
   const counter1 = await page.$eval('.lightbox-counter', (e) => e.textContent);
   check('向左滑切到下一张', counter0 !== counter1 && counter1.startsWith('2'), [counter0, counter1]);
-  check('登录用户能看到下载按钮', !!(await page.$('a[aria-label=下载原图]')));
+  await page.click('button[aria-label=更多]');
+  check('登录用户在“更多”里能下载原图', (await page.$$eval('.menu > *', (els) => els.map((e) => e.textContent.trim()))).includes('下载原图'));
+  await page.click('button[aria-label=更多]');
   await page.keyboard.press('Escape');
 
   // ---- 分享：密码、长辈模式、不允许下载
@@ -218,7 +224,9 @@ async function login(page) {
   await guest.waitForSelector('.grid .thumb', { timeout: 30000 });
   await guest.click('.grid .thumb');
   await guest.waitForSelector('.lightbox');
-  check('不允许下载时没有下载按钮', !(await guest.$('a[aria-label=下载原图]')));
+  await guest.click('button[aria-label=更多]');
+  check('不允许下载时没有下载按钮', !(await guest.$$eval('.menu > *', (els) => els.map((e) => e.textContent.trim()))).includes('下载原图'));
+  await guest.click('button[aria-label=更多]');
   await guest.keyboard.press('Escape');
   await guest.click('.topbar .icon-btn');
   await guest.waitForSelector('.search-box input');
@@ -260,11 +268,12 @@ async function login(page) {
     return { position: s.position, bottom: Math.round(window.innerHeight - r.bottom), labels: [...el.querySelectorAll('a')].map((a) => a.innerText.trim()) };
   });
   check('手机上导航在底部', nav.position === 'fixed' && nav.bottom === 0, nav);
-  check('手机底栏显示“我的”', nav.labels.includes('我的') && nav.labels.includes('照片'), nav.labels);
+  check('手机底栏 5 项', nav.labels.join('|') === '首页|照片|搜索|家人|我的', nav.labels);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check('手机上没有横向滚动', overflow <= 0, overflow);
   await page.screenshot({ path: `${SHOTS}mobile-home.png` });
   const babyHref = await page.$eval('.baby-card', (a) => a.getAttribute('href'));
+  // 旧地址（tab=measurements）也能打开
   await page.goto(`${BASE}${babyHref}?tab=measurements`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.growth-chart svg');
   check('手机上成长曲线能显示', (await page.$eval('.growth-chart svg', (e) => e.getBoundingClientRect().width)) > 300);

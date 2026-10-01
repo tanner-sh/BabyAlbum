@@ -42,26 +42,38 @@ export function ReviewTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (it
 
   return (
     <>
-      <div className="review-picker">
-        <div className="chips">
-          {Array.from({ length: years + 1 }, (_, i) => years - i).map((i) => (
-            <button key={i} className={`chip ${kind === 'year' && index === i ? 'chip-accent' : ''}`} onClick={() => select('year', i)}>
-              {yearLabel(i)}
-              {i === years && '（进行中）'}
-            </button>
-          ))}
-        </div>
-        <label className="review-month">
-          <span className="muted">按月看</span>
-          <select value={kind === 'month' ? index : ''} onChange={(e) => select('month', Number(e.target.value))}>
-            {kind !== 'month' && <option value="">选择月份</option>}
+      {/* 选哪一段：年和月放在一个下拉框里；播放按钮在同一行，照片尽量往上放 */}
+      <div className="review-bar">
+        <select
+          aria-label="回顾哪一段"
+          value={`${kind}:${index}`}
+          onChange={(e) => {
+            const [k, i] = e.target.value.split(':');
+            select(k as ReviewKind, Number(i));
+          }}
+        >
+          <optgroup label="按年">
+            {Array.from({ length: years + 1 }, (_, i) => years - i).map((i) => (
+              <option key={`y${i}`} value={`year:${i}`}>
+                {yearLabel(i)}
+                {i === years ? '（进行中）' : ''}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="按月">
             {Array.from({ length: months + 1 }, (_, i) => months - i).map((i) => (
-              <option key={i} value={i}>
+              <option key={`m${i}`} value={`month:${i}`}>
                 {monthLabel(i)}（{formatDate(monthDate(baby.birthday, i))} 起）{i === months ? '· 进行中' : ''}
               </option>
             ))}
-          </select>
-        </label>
+          </optgroup>
+        </select>
+        {review.data && review.data.items.length > 0 && (
+          <button className="btn btn-primary" onClick={() => setPlaying(true)}>
+            <Play size={16} fill="currentColor" />
+            播放
+          </button>
+        )}
       </div>
 
       {review.isPending ? (
@@ -72,21 +84,12 @@ export function ReviewTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (it
         <Empty icon={<Sparkles size={40} />} title={`${kind === 'year' ? yearLabel(index) : monthLabel(index)}还没有照片`} />
       ) : (
         <>
-          <div className="section-actions">
-            <div>
-              <h2>
-                {baby.name} · {review.data.kind === 'year' ? yearLabel(index) : monthLabel(index)}
-              </h2>
-              <p className="muted">
-                {formatDate(review.data.from)} – {formatDate(review.data.to)}，共 {review.data.total.toLocaleString()} 张（含 {review.data.videos} 个视频），挑了{' '}
-                {review.data.items.length} 张：优先收藏的、{baby.name}的脸大的、分辨率高的，连拍只留一张，尽量每{kind === 'year' ? '个月' : '天'}都有
-              </p>
-            </div>
-            <button className="btn btn-primary" onClick={() => setPlaying(true)}>
-              <Play size={16} fill="currentColor" />
-              播放
-            </button>
-          </div>
+          <p
+            className="muted small review-summary"
+            title={`优先收藏的、${baby.name}的脸大的、分辨率高的，连拍只留一张，尽量每${kind === 'year' ? '个月' : '天'}都有`}
+          >
+            {formatDate(review.data.from)} – {formatDate(review.data.to)} · 从 {review.data.total.toLocaleString()} 张里挑了 {review.data.items.length} 张
+          </p>
           <div className="review-grid">
             {review.data.items.map((item, i) => (
               <button key={item.id} className="review-cell" onClick={() => setOpen(i)}>

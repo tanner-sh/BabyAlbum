@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Ruler, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { request, useAlbum, useMeasurements, type Baby, type Measurement } from '../api';
 import { daysBetween, formatDate, today } from '../format';
 import { formatPercentile, percentile, PERCENTILES, valueAt, WHO_MAX_DAY, type Indicator } from '../who';
-import { Empty, ErrorBox, Modal, Spinner, Tabs } from './ui';
+import { Empty, ErrorBox, Modal, Spinner } from './ui';
 
 type Field = 'heightCm' | 'weightKg' | 'headCm';
 
@@ -31,9 +31,7 @@ export function MeasurementsTab({ baby }: { baby: Baby }) {
   return (
     <>
       <div className="section-actions">
-        <p className="muted">
-          记录身高、体重、头围，和 WHO 儿童生长标准（0–5 岁）对比。曲线上的浅色区域是 P3–P97，深色是 P15–P85，中间的线是 P50（同龄孩子的中位数）。
-        </p>
+        <p className="muted">身高、体重、头围，和 WHO 儿童生长标准对比。</p>
         {!album.readOnly && (
           <button className="btn btn-primary" onClick={() => setEditing({ date: today() })}>
             <Plus size={16} />
@@ -48,7 +46,13 @@ export function MeasurementsTab({ baby }: { baby: Baby }) {
         </Empty>
       ) : (
         <>
-          <Tabs value={indicator} onChange={setIndicator} options={INDICATORS} />
+          <div className="subtabs" role="tablist">
+            {INDICATORS.map((i) => (
+              <button key={i.value} role="tab" aria-selected={indicator === i.value} className={`subtab ${indicator === i.value ? 'active' : ''}`} onClick={() => setIndicator(i.value)}>
+                {i.label}
+              </button>
+            ))}
+          </div>
           <GrowthChart baby={baby} records={records.data} indicator={indicator} unit={meta.unit} field={meta.field} />
           <table className="measure-table">
             <thead>
@@ -93,13 +97,28 @@ export function MeasurementsTab({ baby }: { baby: Baby }) {
 
 // ---------------------------------------------------------------- 曲线图（SVG，不依赖图表库）
 
-const W = 640;
-const H = 320;
-const PAD = { left: 44, right: 16, top: 12, bottom: 32 };
+const PAD = { left: 40, right: 12, top: 12, bottom: 28 };
+
+/** 元素的实际宽度：曲线按实际像素画，手机上文字才不会被缩得看不清 */
+function useWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(640);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
 
 function GrowthChart({ baby, records, indicator, unit, field }: { baby: Baby; records: Measurement[]; indicator: Indicator; unit: string; field: Field }) {
   const points = records.filter((r) => r[field] !== null && r.ageDays >= 0).map((r) => ({ day: r.ageDays, value: r[field]!, r }));
   const sex = baby.sex;
+  const [figRef, figWidth] = useWidth<HTMLElement>();
+  const W = Math.max(300, figWidth);
+  const H = W < 520 ? 240 : 320;
 
   const chart = useMemo(() => {
     // 横轴：从出生到最后一次测量之后一点，至少 1 岁，最多到 WHO 标准的 5 岁（测量更晚时延长）
@@ -126,11 +145,12 @@ function GrowthChart({ baby, records, indicator, unit, field }: { baby: Baby; re
 
   // 横轴刻度：2 岁以内每 3 个月，之后每 6 个月
   const ticks: number[] = [];
-  for (let m = 0; m * 30.4375 <= chart.maxDay; m += chart.maxDay > 900 ? 6 : 3) ticks.push(m);
+  const stepMonths = chart.maxDay > 900 ? (W < 520 ? 12 : 6) : W < 520 ? 6 : 3;
+  for (let m = 0; m * 30.4375 <= chart.maxDay; m += stepMonths) ticks.push(m);
   const yTicks = niceTicks(chart.minV, chart.maxV, 6);
 
   return (
-    <figure className="growth-chart">
+    <figure className="growth-chart" ref={figRef}>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${baby.name}的${indicator === 'weight' ? '体重' : indicator === 'length' ? '身高' : '头围'}曲线`}>
         {yTicks.map((v) => (
           <g key={v}>

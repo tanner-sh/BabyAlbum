@@ -1,4 +1,4 @@
-import { Activity, Copy, FolderOpen, SlidersHorizontal, UserRound, Users } from 'lucide-react';
+import { Activity, Copy, FolderOpen, SlidersHorizontal, UserRound } from 'lucide-react';
 import { Navigate, NavLink, Outlet, useOutletContext } from 'react-router';
 import type { Me } from '../../api';
 
@@ -9,6 +9,7 @@ export function AdminLayout() {
   return (
     <>
       <nav className="tabs admin-tabs">
+        {/* 手机上 5 个标签排成两行，不用左右滑 */}
         <NavLink to="library" className="tab">
           <FolderOpen size={16} />
           照片库
@@ -20,10 +21,6 @@ export function AdminLayout() {
         <NavLink to="tidy" className="tab">
           <Copy size={16} />
           整理
-        </NavLink>
-        <NavLink to="members" className="tab">
-          <Users size={16} />
-          成员
         </NavLink>
         <NavLink to="health" className="tab">
           <Activity size={16} />

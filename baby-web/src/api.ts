@@ -274,8 +274,9 @@ export function useAssetInfo(id: string | null) {
   });
 }
 
-export function useBabies() {
-  return useQuery({ queryKey: ['babies'], queryFn: () => get<Baby[]>('/api/babies') });
+/** enabled：分享链接里没登录，不去请求 */
+export function useBabies(enabled = true) {
+  return useQuery({ queryKey: ['babies'], queryFn: () => get<Baby[]>('/api/babies'), enabled });
 }
 
 export function useMe() {

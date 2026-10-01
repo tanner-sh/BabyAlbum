@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, EyeOff, SkipForward, Users } from 'lucide-react';
+import { Baby as BabyIcon, Check, EyeOff, SkipForward, Users } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router';
 import { get, request, type UnnamedPerson } from '../api';
+import { ClaimModal } from './ClaimBaby';
 import { Avatar, ErrorBox, Spinner } from './ui';
 
 // 认识家里人：给常和宝宝一起出现的人命名。称呼由用户自己选或输入，不做任何假设
@@ -10,21 +10,6 @@ const RELATIONS = ['爸爸', '妈妈', '爷爷', '奶奶', '外公', '外婆', '
 
 function useUnnamed() {
   return useQuery({ queryKey: ['admin', 'people', 'unnamed'], queryFn: () => get<UnnamedPerson[]>('/api/admin/people/unnamed'), staleTime: 5 * 60_000 });
-}
-
-/** 首页提示（管理员）：还有经常和宝宝同框、没有名字的人 */
-export function FamilyHint() {
-  const unnamed = useUnnamed();
-  const often = (unnamed.data ?? []).filter((p) => p.withBaby >= 10);
-  if (!often.length) return null;
-  return (
-    <Link to="/admin/people" className="notice notice-info">
-      <Users size={18} />
-      <span>
-        有 {often.length} 位经常和宝宝一起出现的人还没有名字。告诉宝宝相册他们是谁，就能看宝宝和他们的合照、全家福 →
-      </span>
-    </Link>
-  );
 }
 
 /** 人物页顶部：这几位是谁？ */
@@ -38,7 +23,7 @@ export function FamilyIntro() {
       <h2>
         <Users size={18} /> 这几位是谁？
       </h2>
-      <p className="muted">照片多、经常和宝宝同框的人排在前面。起好名字后，宝宝的时间线上可以只看和 TA 的合照，还能找出全家福。</p>
+      <p className="muted">常和宝宝同框的排在前面。起好名字，就能看宝宝和 TA 的合照、全家福。</p>
       <div className="family-cards">
         {unnamed.data.map((p) => (
           <FamilyCard key={p.id} person={p} />
@@ -53,6 +38,7 @@ function FamilyCard({ person }: { person: UnnamedPerson }) {
   const [custom, setCustom] = useState('');
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
 
   async function act(fn: () => Promise<unknown>, label: string) {
     setError(null);
@@ -107,9 +93,14 @@ function FamilyCard({ person }: { person: UnnamedPerson }) {
               <SkipForward size={14} /> 跳过
             </button>
           </div>
+          {/* 家里的另一个孩子 */}
+          <button className="link-btn small" onClick={() => setClaiming(true)}>
+            <BabyIcon size={14} /> 这是另一个宝宝
+          </button>
         </>
       )}
       {error && <div className="error-box">{error}</div>}
+      {claiming && <ClaimModal personId={person.id} assets={person.assets} thumbnailUrl={person.thumbnailUrl} onClose={() => setClaiming(false)} />}
     </article>
   );
 }
