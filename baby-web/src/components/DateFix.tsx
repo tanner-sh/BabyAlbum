@@ -64,7 +64,7 @@ function DateIssuesModal({ baby, groups, onClose }: { baby: Baby; groups: DateIs
       wide
       footer={
         <>
-          <span className="muted">只在宝宝相册里生效，不会修改 NAS 上的原文件</span>
+          <span className="muted">只在宝宝相册里生效，不会修改存储上的原文件</span>
           <span className="spacer" />
           <button className="btn" onClick={onClose}>
             稍后再说
@@ -170,7 +170,7 @@ export function EditDateModal({ assetId, onClose }: { assetId: string; onClose: 
             <input type="datetime-local" value={current} onChange={(e) => setValue(e.target.value)} />
           </label>
           {info.data?.originalTakenAt && <p className="muted">原始日期：{formatDateTime(info.data.originalTakenAt)}（来自照片文件）</p>}
-          <p className="muted">只在宝宝相册里生效，不会修改 NAS 上的原文件和 Immich。</p>
+          <p className="muted">只在宝宝相册里生效，不会修改存储上的原文件和 Immich。</p>
           {error && <div className="error-box">{error}</div>}
         </div>
       )}

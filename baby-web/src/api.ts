@@ -229,11 +229,14 @@ export type ImmichOverview = {
 };
 export type FolderListing = { path: string; relative: string; folders: { name: string; label: string; path: string }[] };
 export type MountStatus = { state: 'ok' | 'error' | 'pending'; error: string | null; checkedAt: string | null };
+export type StorageProtocol = 'smb' | 'nfs' | 'webdav';
 export type NasSource = {
   id: number;
   name: string;
+  protocol: StorageProtocol;
   host: string;
   share: string;
+  url: string;
   subPath: string;
   username: string;
   vers: string;

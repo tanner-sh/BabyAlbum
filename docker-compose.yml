@@ -1,11 +1,11 @@
 # BabyAlbum 宝宝相册
 #
-# 直接 docker compose up -d 即可，不需要任何配置文件。NAS 连接、导入哪些文件夹、成员、
+# 直接 docker compose up -d 即可，不需要任何配置文件。存储连接、导入哪些文件夹、成员、
 # Immich 的各项设置，全部在宝宝相册的管理页面里完成。
 #
 # 组成：
 #   baby-server              宝宝相册（网页 + API），唯一对外开放的服务，默认端口 3000
-#   nas-mounter              挂载服务：按宝宝相册的指令挂载 NAS（需要挂载权限，不对外开放）
+#   nas-mounter              挂载服务：按宝宝相册的指令挂载存储（SMB、NFS、WebDAV；需要挂载权限，不对外开放）
 #   immich-*、database、redis Immich 及其依赖，只在后台工作（扫描、缩略图、转码、人脸、搜索）
 #
 # 可选的 .env（都有默认值）：BABY_PORT、TZ、IMMICH_VERSION、DB_PASSWORD、BABYALBUM_HOST_DIR
@@ -48,6 +48,7 @@ services:
     build:
       context: .
       dockerfile: baby-server/Dockerfile
+      target: app
     environment:
       IMMICH_URL: http://immich-server:2283
       BACKUP_DIR: /backups/baby-album
@@ -67,18 +68,20 @@ services:
       - nas-mounter
     restart: unless-stopped
 
-  # —— 挂载服务：和宝宝相册用同一个镜像，只是入口不同 ——
+  # —— 挂载服务：挂载 SMB、NFS、WebDAV 存储 ——
   nas-mounter:
     container_name: nas_mounter
-    image: babyalbum-app
+    image: babyalbum-mounter
     build:
       context: .
       dockerfile: baby-server/Dockerfile
-    command: ['node', '--disable-warning=ExperimentalWarning', 'src/mounter/main.ts']
-    # 主机网络：SMB 连接不随这个容器重启而断开（已有的挂载一直可用）。不监听任何端口，只通过 socket 文件接收指令
+      target: mounter
+    # 主机网络：SMB、NFS 的连接不随这个容器重启而断开（已有的挂载一直可用）。不监听任何端口，只通过 socket 文件接收指令
     network_mode: host
     cap_add: [SYS_ADMIN, DAC_READ_SEARCH]
     security_opt: ['apparmor:unconfined']
+    # WebDAV 通过 FUSE 挂载
+    devices: ['/dev/fuse:/dev/fuse']
     environment:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:

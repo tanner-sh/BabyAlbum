@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { get, request, type FolderListing, type ImmichOverview, type Library, type NasOverview, type Queue } from '../../api';
 import { ErrorBox, Modal, Spinner } from '../../components/ui';
 import { formatBytes, formatDateTime } from '../../format';
-import { NasSection } from './NasSection';
+import { StorageSection } from './StorageSection';
 
 const STATE_TEXT = {
   connecting: '正在连接照片服务…',
@@ -44,7 +44,7 @@ export function LibraryPage() {
             <Stat
               label="原始文件总大小"
               value={formatBytes(o.stats.usage) || '—'}
-              hint={o.stats.counting ? '统计中，读完所有文件的信息后才准确' : '在 NAS 上，只读'}
+              hint={o.stats.counting ? '统计中，读完所有文件的信息后才准确' : '在存储上，只读'}
             />
             <Stat
               label="本机存储（缩略图等）"
@@ -55,7 +55,7 @@ export function LibraryPage() {
         )}
       </section>
 
-      <NasSection />
+      <StorageSection />
 
       {o.status.state === 'connected' && (
         <>
@@ -63,7 +63,7 @@ export function LibraryPage() {
             <div className="section-actions">
               <div>
                 <h2>导入的文件夹</h2>
-                <p className="muted">从上面连接的 NAS 里选择要导入的文件夹。只读访问，不会修改、移动或删除原文件；新增的照片会在定时扫描时自动导入。</p>
+                <p className="muted">从上面的存储里选择要导入的文件夹。只读访问，不会修改、移动或删除原文件；新增的照片会在定时扫描时自动导入。</p>
               </div>
               <button className="btn btn-primary" onClick={() => setEditing('new')}>
                 <FolderPlus size={16} />
@@ -73,7 +73,7 @@ export function LibraryPage() {
             {!o.libraries?.length ? (
               <div className="empty">
                 <p className="empty-title">还没有导入照片</p>
-                <p>先在上面添加 NAS，再点“添加照片库”，选择存放宝宝照片的文件夹。</p>
+                <p>先在上面添加存储，再点“添加照片库”，选择存放宝宝照片的文件夹。</p>
               </div>
             ) : (
               o.libraries.map((l) => <LibraryCard key={l.id} library={l} nasRoot={o.nasRoot} counting={!!o.stats?.counting} onEdit={() => setEditing(l)} />)
@@ -125,9 +125,9 @@ function ConnectForm() {
   );
 }
 
-/** /mnt/nas/1/宝宝相册 → 客厅 NAS / 宝宝相册 */
+/** /mnt/nas/1/宝宝相册 → 客厅 NAS / 宝宝相册（显示存储的名字） */
 function relativePath(path: string, root: string, nasNames: Map<string, string>) {
-  if (path === root) return '全部 NAS';
+  if (path === root) return '全部存储';
   const [first, ...rest] = path.slice(root.length + 1).split('/');
   return [nasNames.get(first) ?? first, ...rest].join(' / ');
 }
@@ -147,7 +147,7 @@ function LibraryCard({ library, nasRoot, counting, onEdit }: { library: Library;
     await queryClient.invalidateQueries({ queryKey: ['admin', 'immich'] });
   }
   async function remove() {
-    if (!confirm(`从照片库中移除“${library.name}”？\n\n宝宝相册将不再显示这些照片（NAS 上的文件不受影响，之后可以重新导入）。`)) return;
+    if (!confirm(`从照片库中移除“${library.name}”？\n\n宝宝相册将不再显示这些照片（存储上的文件不受影响，之后可以重新导入）。`)) return;
     await request('DELETE', `/api/admin/libraries/${library.id}`);
     await queryClient.invalidateQueries();
   }
@@ -267,7 +267,7 @@ function FolderPicker({ selected, onToggle }: { selected: string[]; onToggle: (p
     <div className="folder-picker">
       <div className="breadcrumb">
         <button type="button" onClick={() => setRel('')}>
-          NAS
+          存储
         </button>
         {crumbs.map((c, i) => (
           <span key={i}>

@@ -1,4 +1,5 @@
-// NAS 连接管理：把管理员在网页上配置的 NAS 交给挂载服务（nas-mounter）挂载，并定期检查、自动重连。
+// 存储连接管理（SMB / NFS / WebDAV）：把管理员在网页上配置的存储交给挂载服务（nas-mounter）挂载，
+// 并定期检查、自动重连。
 //   照片来源 → /mnt/nas/<id>（只读，Immich 和宝宝相册都能看到）
 //   备份位置 → Immich 的 /data/backups、宝宝相册的 /backups（可写）
 
@@ -10,10 +11,11 @@ import { nasSources, settings, type NasSource } from './db.ts';
 export type MountState = { state: 'ok' | 'error' | 'pending'; error: string | null; checkedAt: string | null };
 export type BackupTarget = { sourceId: number; subPath: string };
 
-type MounterStatus = Record<string, { mounted: boolean; healthy: boolean; writable: boolean }>;
+type MounterStatus = { startedAt: string; mounts: Record<string, { mounted: boolean; healthy: boolean; writable: boolean }> };
 
 const states = new Map<string, MountState>();
 let mounterAvailable = false;
+let lastMounterStart: string | null = null;
 
 export const nasTarget = (id: number) => `nas/${id}`;
 export const nasMountPath = (id: number) => `${config.NAS_ROOT}/${id}`;
@@ -53,9 +55,13 @@ function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   });
 }
 
-const mountBody = (src: Pick<NasSource, 'host' | 'share' | 'username' | 'password' | 'vers'>, subPath: string, writable = false) => ({
+type Connection = Pick<NasSource, 'protocol' | 'host' | 'share' | 'url' | 'username' | 'password' | 'vers'>;
+
+const mountBody = (src: Connection, subPath: string, writable = false) => ({
+  protocol: src.protocol,
   host: src.host,
   share: src.share,
+  url: src.url,
   subPath,
   username: src.username,
   password: src.password,
@@ -63,10 +69,13 @@ const mountBody = (src: Pick<NasSource, 'host' | 'share' | 'username' | 'passwor
   writable,
 });
 
+/** 存储里的子目录 + 额外的子目录（备份位置是在存储的子目录下再选一个文件夹） */
+export const joinSub = (...parts: string[]) => parts.map((p) => p.replace(/^\/+|\/+$/g, '')).filter(Boolean).join('/');
+
 // ---------------------------------------------------------------- 对外接口
 
 /** 测试连接：试挂载后返回共享里的顶层文件夹；writable 时还会测试能否写入 */
-export function testConnection(src: Pick<NasSource, 'host' | 'share' | 'username' | 'password' | 'vers'>, subPath: string, writable = false) {
+export function testConnection(src: Connection, subPath: string, writable = false) {
   return call<{ folders: string[] }>('POST', '/test', mountBody(src, subPath, writable));
 }
 
@@ -100,19 +109,22 @@ export async function setBackupTarget(target: BackupTarget | null) {
     return;
   }
   const src = nasSources.get(target.sourceId);
-  if (!src) throw new MounterError('NAS 不存在', true);
-  await testConnection(src, target.subPath, true);
+  if (!src) throw new MounterError('存储不存在', true);
+  await testConnection(src, joinSub(src.subPath, target.subPath), true);
   await call('POST', '/unmount', { target: 'backup' });
-  await call('POST', '/mount', { target: 'backup', ...mountBody(src, target.subPath, true) });
+  await call('POST', '/mount', { target: 'backup', ...mountBody(src, joinSub(src.subPath, target.subPath), true) });
   settings.set('backup.target', JSON.stringify(target));
   states.set('backup', { state: 'ok', error: null, checkedAt: new Date().toISOString() });
 }
 
 /** 让实际挂载和配置一致：缺的挂上、坏的重连、多余的卸掉 */
 export async function reconcile(log: FastifyBaseLogger) {
-  let status: MounterStatus;
+  let status: MounterStatus['mounts'];
   try {
-    status = await call<MounterStatus>('GET', '/status');
+    const res = await call<MounterStatus>('GET', '/status');
+    status = res.mounts;
+    if (lastMounterStart && lastMounterStart !== res.startedAt) log.info('挂载服务重启过，检查并恢复挂载（WebDAV 需要重新挂载）');
+    lastMounterStart = res.startedAt;
     mounterAvailable = true;
   } catch {
     mounterAvailable = false;
@@ -127,8 +139,8 @@ export async function reconcile(log: FastifyBaseLogger) {
       continue;
     }
     await mountSource(src).then(
-      () => log.info(`NAS “${src.name}” 已挂载`),
-      (err) => log.warn(`NAS “${src.name}” 挂载失败：${(err as Error).message}`),
+      () => log.info(`存储“${src.name}”已挂载`),
+      (err) => log.warn(`存储“${src.name}”挂载失败：${(err as Error).message}`),
     );
   }
   // 配置里已经删掉的 NAS：卸载并删掉空的挂载点目录（只处理数字编号的目录，不碰其他目录）
@@ -142,7 +154,7 @@ export async function reconcile(log: FastifyBaseLogger) {
   if (backup && src) {
     if (!(status.backup?.healthy && status.backup.writable)) {
       await call('POST', '/unmount', { target: 'backup' }).catch(() => {});
-      await call('POST', '/mount', { target: 'backup', ...mountBody(src, backup.subPath, true) }).then(
+      await call('POST', '/mount', { target: 'backup', ...mountBody(src, joinSub(src.subPath, backup.subPath), true) }).then(
         () => states.set('backup', { state: 'ok', error: null, checkedAt: new Date().toISOString() }),
         (err) => states.set('backup', { state: 'error', error: (err as Error).message, checkedAt: new Date().toISOString() }),
       );
@@ -152,11 +164,20 @@ export async function reconcile(log: FastifyBaseLogger) {
   }
 }
 
-/** 启动后立即同步一次，之后每分钟检查一次（断线自动重连） */
+/**
+ * 启动后立即同步一次，之后每 20 秒检查一次：断线自动重连；
+ * 挂载服务重启后 WebDAV 挂载会失效，最多 20 秒内恢复
+ */
 export function startNasReconcile(log: FastifyBaseLogger) {
-  const tick = () => reconcile(log).catch((err) => log.warn(err, '同步 NAS 挂载失败'));
+  let running = false;
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    await reconcile(log).catch((err) => log.warn(err, '同步存储挂载失败'));
+    running = false;
+  };
   void tick();
-  setInterval(tick, 60_000).unref();
+  setInterval(tick, 20_000).unref();
 }
 
 export { MounterError };

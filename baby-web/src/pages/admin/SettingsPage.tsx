@@ -130,12 +130,12 @@ export function SettingsPage() {
         </div>
       </Section>
 
-      <Section title="自动导入新照片" hint="定时扫描 NAS 上的文件夹，把新照片导入进来。">
+      <Section title="自动导入新照片" hint="定时扫描照片库里的文件夹，把新照片导入进来。">
         <Toggle checked={s.libraryScan.enabled} onChange={(v) => set('libraryScan', { ...s.libraryScan, enabled: v })} label="定时扫描" />
         {s.libraryScan.enabled && <CronPicker value={s.libraryScan.cronExpression} onChange={(v) => set('libraryScan', { ...s.libraryScan, cronExpression: v })} />}
       </Section>
 
-      <Section title="数据库备份" hint="照片的人物、收藏等信息存在 Immich 的数据库里，定期备份到 NAS。">
+      <Section title="数据库备份" hint="照片的人物、收藏等信息存在 Immich 的数据库里，定期备份（备份位置在“照片库”页面设置）。">
         <Toggle checked={s.backup.enabled} onChange={(v) => set('backup', { ...s.backup, enabled: v })} label="自动备份" />
         {s.backup.enabled && (
           <>

@@ -305,8 +305,8 @@ export async function adminRoutes(app: FastifyInstance) {
       readdir(full, { withFileTypes: true }).catch(() => null),
       new Promise<null>((r) => setTimeout(() => r(null), 10_000)),
     ]);
-    if (!entries) return reply.code(404).send({ message: rel ? '读取不了这个文件夹（NAS 可能断开了）' : '还没有添加 NAS' });
-    // 根目录下的 1、2…… 是各个 NAS 连接，显示成它们的名字
+    if (!entries) return reply.code(404).send({ message: rel ? '读取不了这个文件夹（存储可能断开了）' : '还没有添加存储' });
+    // 根目录下的 1、2…… 是各个存储，显示成它们的名字
     const names = new Map(nasSources.list().map((n) => [String(n.id), n.name]));
     return {
       path: full,
@@ -318,18 +318,54 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  // ======== NAS 连接（SMB）
+  // ======== 存储（SMB / NFS / WebDAV）
 
-  const nasBody = z.object({
-    name: z.string().trim().min(1).max(30),
-    host: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9.-]+$/, '地址只能是 IP 或主机名'),
-    share: z.string().trim().min(1).max(100).refine((v) => !/[\\/]/.test(v), '共享名里不能有斜杠'),
-    subPath: z.string().trim().max(300).default('').refine((v) => !v.split('/').includes('..'), '路径无效'),
-    username: z.string().trim().min(1).max(100),
-    // 修改时留空表示不改密码
-    password: z.string().max(200).optional(),
-    vers: z.enum(['3.1.1', '3.0', '2.1', '2.0', '1.0']).default('3.0'),
+  const hostSchema = z.string().trim().min(1, '请填写地址').max(100).regex(/^[A-Za-z0-9.-]+$/, '地址只能是 IP 或主机名');
+  const subPathSchema = z.string().trim().max(300).default('').refine((v) => !v.split('/').includes('..'), '路径无效');
+  // 修改时密码留空表示不改
+  const storagePasswordSchema = z.string().max(200).optional();
+
+  const storageSchema = z.discriminatedUnion('protocol', [
+    z.object({
+      protocol: z.literal('smb'),
+      host: hostSchema,
+      share: z.string().trim().min(1, '请填写共享名').max(100).refine((v) => !/[\\/]/.test(v), '共享名里不能有斜杠'),
+      username: z.string().trim().min(1, '请填写用户名').max(100),
+      password: storagePasswordSchema,
+      vers: z.enum(['3.1.1', '3.0', '2.1', '2.0', '1.0']).default('3.0'),
+      subPath: subPathSchema,
+    }),
+    z.object({
+      protocol: z.literal('nfs'),
+      host: hostSchema,
+      // 共享路径（export），比如 /volume1/photos
+      share: z.string().trim().min(1, '请填写共享路径').max(200).refine((v) => v.startsWith('/') && !v.split('/').includes('..'), '共享路径要以 / 开头'),
+      vers: z.enum(['4.2', '4.1', '4', '3']).default('4.1'),
+      subPath: subPathSchema,
+    }),
+    z.object({
+      protocol: z.literal('webdav'),
+      url: z.string().trim().max(500).regex(/^https?:\/\/[^\s]+$/, 'WebDAV 地址要以 http:// 或 https:// 开头'),
+      username: z.string().trim().max(100).default(''),
+      password: storagePasswordSchema,
+      subPath: subPathSchema,
+    }),
+  ]);
+  type StorageInput = z.infer<typeof storageSchema>;
+
+  /** 把各协议的输入统一成存储记录的字段；没填密码时沿用原来的 */
+  const toConnection = (input: StorageInput, previousPassword = '') => ({
+    protocol: input.protocol,
+    host: 'host' in input ? input.host : '',
+    share: 'share' in input ? input.share : '',
+    url: 'url' in input ? input.url : '',
+    username: 'username' in input ? input.username : '',
+    password: ('password' in input && input.password) || previousPassword,
+    vers: 'vers' in input ? input.vers : '',
+    subPath: input.subPath,
   });
+
+  const nameSchema = z.object({ name: z.string().trim().min(1, '请填写名称').max(30) });
 
   const nasView = async (n: NasSource) => {
     const libraries = immichConnected() ? await immich.getAllLibraries().catch(() => []) : [];
@@ -337,8 +373,10 @@ export async function adminRoutes(app: FastifyInstance) {
     return {
       id: n.id,
       name: n.name,
+      protocol: n.protocol,
       host: n.host,
       share: n.share,
+      url: n.url,
       subPath: n.subPath,
       username: n.username,
       vers: n.vers,
@@ -362,22 +400,24 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  // 测试连接（不保存）：返回共享里的顶层文件夹。修改已有连接时可以传 id，不填密码就用保存的
+  // 测试连接（不保存）：返回顶层文件夹。修改已有存储时可以传 id，不填密码就用保存的
   app.post('/api/admin/nas/test', async (req, reply) => {
-    const body = nasBody.partial({ name: true }).extend({ id: z.number().int().optional(), writable: z.boolean().default(false) }).parse(req.body);
-    const password = body.password || (body.id ? nasSources.get(body.id)?.password : undefined);
-    if (!password) return reply.code(400).send({ message: '请填写密码' });
+    const { id, writable } = z.object({ id: z.number().int().optional(), writable: z.boolean().default(false) }).parse(req.body);
+    const input = storageSchema.parse(req.body);
+    const conn = toConnection(input, id ? nasSources.get(id)?.password : '');
+    if (conn.protocol === 'smb' && !conn.password) return reply.code(400).send({ message: '请填写密码' });
     try {
-      return await testConnection({ ...body, password }, body.subPath, body.writable);
+      return await testConnection(conn, conn.subPath, writable);
     } catch (err) {
       return mounterError(reply, err);
     }
   });
 
   app.post('/api/admin/nas', async (req, reply) => {
-    const body = nasBody.parse(req.body);
-    if (!body.password) return reply.code(400).send({ message: '请填写密码' });
-    const src = nasSources.create({ ...body, password: body.password });
+    const { name } = nameSchema.parse(req.body);
+    const conn = toConnection(storageSchema.parse(req.body));
+    if (conn.protocol === 'smb' && !conn.password) return reply.code(400).send({ message: '请填写密码' });
+    const src = nasSources.create({ name, ...conn });
     try {
       await mountSource(src);
     } catch (err) {
@@ -390,15 +430,18 @@ export async function adminRoutes(app: FastifyInstance) {
   app.put('/api/admin/nas/:id', async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const current = nasSources.get(id);
-    if (!current) return reply.code(404).send({ message: 'NAS 不存在' });
-    const body = nasBody.parse(req.body);
-    const next = { ...body, password: body.password || current.password };
+    if (!current) return reply.code(404).send({ message: '存储不存在' });
+    const { name } = nameSchema.parse(req.body);
+    const input = storageSchema.parse(req.body);
+    // 换了协议的话，原来的密码不再适用
+    const conn = toConnection(input, input.protocol === current.protocol ? current.password : '');
+    if (conn.protocol === 'smb' && !conn.password) return reply.code(400).send({ message: '请填写密码' });
     try {
-      await testConnection(next, next.subPath);
+      await testConnection(conn, conn.subPath);
     } catch (err) {
       return mounterError(reply, err);
     }
-    const updated = nasSources.update(id, next)!;
+    const updated = nasSources.update(id, { name, ...conn })!;
     try {
       await unmountSource(id);
       await mountSource(updated);
@@ -411,7 +454,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/api/admin/nas/:id/reconnect', async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const src = nasSources.get(id);
-    if (!src) return reply.code(404).send({ message: 'NAS 不存在' });
+    if (!src) return reply.code(404).send({ message: '存储不存在' });
     try {
       await unmountSource(id);
       await mountSource(src);
@@ -424,10 +467,10 @@ export async function adminRoutes(app: FastifyInstance) {
   app.delete('/api/admin/nas/:id', async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const src = nasSources.get(id);
-    if (!src) return reply.code(404).send({ message: 'NAS 不存在' });
+    if (!src) return reply.code(404).send({ message: '存储不存在' });
     const view = await nasView(src);
-    if (view.libraries.length) return reply.code(400).send({ message: `照片库“${view.libraries.join('、')}”还在用这个 NAS，请先从照片库里去掉它的文件夹` });
-    if (getBackupTarget()?.sourceId === id) return reply.code(400).send({ message: '备份位置在这个 NAS 上，请先修改备份位置' });
+    if (view.libraries.length) return reply.code(400).send({ message: `照片库“${view.libraries.join('、')}”还在用这个存储，请先从照片库里去掉它的文件夹` });
+    if (getBackupTarget()?.sourceId === id) return reply.code(400).send({ message: '备份位置在这个存储上，请先修改备份位置' });
     await unmountSource(id).catch(() => {});
     nasSources.remove(id);
     return reply.code(204).send();

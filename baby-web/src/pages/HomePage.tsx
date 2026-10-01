@@ -22,7 +22,7 @@ export function HomePage() {
         <Empty icon={<BabyIcon size={48} />} title="欢迎使用宝宝相册">
           {isAdmin ? (
             <>
-              <p>先在“管理 → 照片库”里导入 NAS 上的照片，等人脸识别完成后，在这里选出宝宝的脸，之后所有有宝宝的照片都会按年龄自动整理好。</p>
+              <p>先在“管理 → 照片库”里添加存储、导入照片，等人脸识别完成后，在这里选出宝宝的脸，之后所有有宝宝的照片都会按年龄自动整理好。</p>
               <button className="btn btn-primary" onClick={() => setAdding(true)}>
                 <Plus size={16} />
                 添加宝宝

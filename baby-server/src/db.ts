@@ -64,16 +64,19 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- NAS 连接（SMB）：管理员在网页上添加，由挂载服务挂到 /mnt/nas/<id>（只读）
+  -- 存储（SMB / NFS / WebDAV）：管理员在网页上添加，由挂载服务挂到 /mnt/nas/<id>（只读）
+  --   smb：host + share（共享名）；nfs：host + share（共享路径）；webdav：url
   CREATE TABLE IF NOT EXISTS nas_sources (
     id         INTEGER PRIMARY KEY,
     name       TEXT NOT NULL,
-    host       TEXT NOT NULL,
-    share      TEXT NOT NULL,
+    protocol   TEXT NOT NULL DEFAULT 'smb',
+    host       TEXT NOT NULL DEFAULT '',
+    share      TEXT NOT NULL DEFAULT '',
+    url        TEXT NOT NULL DEFAULT '',
     sub_path   TEXT NOT NULL DEFAULT '',
-    username   TEXT NOT NULL,
-    password   TEXT NOT NULL,
-    vers       TEXT NOT NULL DEFAULT '3.0',
+    username   TEXT NOT NULL DEFAULT '',
+    password   TEXT NOT NULL DEFAULT '',
+    vers       TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -93,6 +96,16 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// ---------------------------------------------------------------- 迁移：旧版本建的表缺少的列
+
+function addColumn(table: string, column: string, definition: string) {
+  const columns = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+// 早期版本只支持 SMB
+addColumn('nas_sources', 'protocol', "TEXT NOT NULL DEFAULT 'smb'");
+addColumn('nas_sources', 'url', "TEXT NOT NULL DEFAULT ''");
 
 export type Baby = { id: number; name: string; birthday: string; immichPersonId: string };
 export type Milestone = { id: number; babyId: number; title: string; date: string; note: string; coverAssetId: string | null };
@@ -271,19 +284,35 @@ export function transaction<T>(fn: () => T): T {
 
 // ---------------------------------------------------------------- NAS 连接
 
-export type NasSource = { id: number; name: string; host: string; share: string; subPath: string; username: string; password: string; vers: string };
-const nasCols = 'id, name, host, share, sub_path AS subPath, username, password, vers';
+export type StorageProtocol = 'smb' | 'nfs' | 'webdav';
+export type NasSource = {
+  id: number;
+  name: string;
+  protocol: StorageProtocol;
+  host: string;
+  share: string;
+  url: string;
+  subPath: string;
+  username: string;
+  password: string;
+  vers: string;
+};
+const nasCols = 'id, name, protocol, host, share, url, sub_path AS subPath, username, password, vers';
 
 export const nasSources = {
   list: () => db.prepare(`SELECT ${nasCols} FROM nas_sources ORDER BY id`).all() as NasSource[],
   get: (id: number) => db.prepare(`SELECT ${nasCols} FROM nas_sources WHERE id = ?`).get(id) as NasSource | undefined,
   create: (n: Omit<NasSource, 'id'>) =>
     db
-      .prepare(`INSERT INTO nas_sources (name, host, share, sub_path, username, password, vers) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${nasCols}`)
-      .get(n.name, n.host, n.share, n.subPath, n.username, n.password, n.vers) as NasSource,
+      .prepare(
+        `INSERT INTO nas_sources (name, protocol, host, share, url, sub_path, username, password, vers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${nasCols}`,
+      )
+      .get(n.name, n.protocol, n.host, n.share, n.url, n.subPath, n.username, n.password, n.vers) as NasSource,
   update: (id: number, n: Omit<NasSource, 'id'>) =>
     db
-      .prepare(`UPDATE nas_sources SET name = ?, host = ?, share = ?, sub_path = ?, username = ?, password = ?, vers = ? WHERE id = ? RETURNING ${nasCols}`)
-      .get(n.name, n.host, n.share, n.subPath, n.username, n.password, n.vers, id) as NasSource | undefined,
+      .prepare(
+        `UPDATE nas_sources SET name = ?, protocol = ?, host = ?, share = ?, url = ?, sub_path = ?, username = ?, password = ?, vers = ? WHERE id = ? RETURNING ${nasCols}`,
+      )
+      .get(n.name, n.protocol, n.host, n.share, n.url, n.subPath, n.username, n.password, n.vers, id) as NasSource | undefined,
   remove: (id: number) => db.prepare('DELETE FROM nas_sources WHERE id = ?').run(id).changes > 0,
 };

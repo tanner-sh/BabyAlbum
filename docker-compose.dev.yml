@@ -21,6 +21,8 @@ services:
   baby-server:
     volumes:
       - dev-photos:/mnt/nas/测试照片:ro
+      # 测试环境的 Immich 数据在 dev-upload 里，统计“本机存储”要看这个卷
+      - dev-upload:/immich-data:ro
 
 volumes:
   dev-photos:
