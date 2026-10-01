@@ -41,8 +41,16 @@ export function LibraryPage() {
           <div className="stats">
             <Stat label="照片" value={o.stats.photos.toLocaleString()} />
             <Stat label="视频" value={o.stats.videos.toLocaleString()} />
-            <Stat label="原始文件总大小" value={formatBytes(o.stats.usage) || '—'} />
-            <Stat label="缓存盘已用" value={`${o.storage.used} / ${o.storage.size}`} hint={`剩余 ${o.storage.available}`} />
+            <Stat
+              label="原始文件总大小"
+              value={formatBytes(o.stats.usage) || '—'}
+              hint={o.stats.counting ? '统计中，读完所有文件的信息后才准确' : '在 NAS 上，只读'}
+            />
+            <Stat
+              label="本机存储（缩略图等）"
+              value={o.storage.immichData === null ? '统计中' : formatBytes(o.storage.immichData) || '0 B'}
+              hint={`所在磁盘已用 ${formatBytes(o.storage.diskUsed)} / 共 ${formatBytes(o.storage.diskSize)}，剩余 ${formatBytes(o.storage.diskAvailable)}`}
+            />
           </div>
         )}
       </section>
@@ -68,7 +76,7 @@ export function LibraryPage() {
                 <p>先在上面添加 NAS，再点“添加照片库”，选择存放宝宝照片的文件夹。</p>
               </div>
             ) : (
-              o.libraries.map((l) => <LibraryCard key={l.id} library={l} nasRoot={o.nasRoot} onEdit={() => setEditing(l)} />)
+              o.libraries.map((l) => <LibraryCard key={l.id} library={l} nasRoot={o.nasRoot} counting={!!o.stats?.counting} onEdit={() => setEditing(l)} />)
             )}
           </section>
           <QueueSection queues={o.queues ?? []} />
@@ -129,7 +137,7 @@ function useNasNames() {
   return new Map((nas.data?.sources ?? []).map((n) => [String(n.id), n.name]));
 }
 
-function LibraryCard({ library, nasRoot, onEdit }: { library: Library; nasRoot: string; onEdit: () => void }) {
+function LibraryCard({ library, nasRoot, counting, onEdit }: { library: Library; nasRoot: string; counting: boolean; onEdit: () => void }) {
   const queryClient = useQueryClient();
   const nasNames = useNasNames();
   const [scanning, setScanning] = useState(false);
@@ -149,7 +157,7 @@ function LibraryCard({ library, nasRoot, onEdit }: { library: Library; nasRoot: 
         <div>
           <strong>{library.name}</strong>
           <span className="muted">
-            {library.assetCount.toLocaleString()} 个文件{library.usage ? `，${formatBytes(library.usage)}` : ''} · {library.refreshedAt ? `上次扫描 ${formatDateTime(library.refreshedAt)}` : '还没扫描完'}
+            {library.assetCount.toLocaleString()} 个文件{library.usage ? `，${formatBytes(library.usage)}${counting ? '（统计中）' : ''}` : ''} · {library.refreshedAt ? `上次扫描 ${formatDateTime(library.refreshedAt)}` : '还没扫描完'}
           </span>
         </div>
         <div className="share-actions">

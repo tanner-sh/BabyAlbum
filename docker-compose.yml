@@ -58,6 +58,8 @@ services:
       - *nas
       - { <<: *backup, target: /backups }
       - mounter-socket:/run/mounter
+      # 只读挂载 Immich 的数据卷，统计缩略图等占了多少空间
+      - immich-data:/immich-data:ro
     ports:
       - '${BABY_PORT:-3000}:3000'
     depends_on:

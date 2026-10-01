@@ -205,8 +205,10 @@ export type ImmichOverview = {
   nasRoot: string;
   version?: string;
   serviceAccount?: string | null;
-  stats?: { photos: number; videos: number; usage: number };
-  storage?: { used: string; size: string; available: string; percent: number };
+  /** counting：还在读取文件信息，原始文件总大小还不完整 */
+  stats?: { photos: number; videos: number; usage: number; counting: boolean };
+  /** 都是字节。immichData：Immich 自己的缩略图等（后台定期统计，刚启动时可能还没有） */
+  storage?: { immichData: number | null; diskUsed: number; diskSize: number; diskAvailable: number };
   queues?: Queue[];
   libraries?: Library[];
 };

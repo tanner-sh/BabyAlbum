@@ -13,6 +13,7 @@ import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountSt
 import { connectWithCredentials, immichConnected, immichStatus } from '../immich-link.ts';
 import { immich } from '../immich.ts';
 import { hashPassword } from '../password.ts';
+import { immichDataUsage } from '../storage-usage.ts';
 
 const roleSchema = z.enum(['admin', 'member', 'viewer']);
 const babyIdsSchema = z.array(z.number().int()).nullable();
@@ -237,8 +238,20 @@ export async function adminRoutes(app: FastifyInstance) {
       nasRoot: config.NAS_ROOT,
       version: `v${version.major}.${version.minor}.${version.patch}`,
       serviceAccount: settings.get('immich.serviceEmail') ?? null,
-      stats: { photos: stats.photos, videos: stats.videos, usage: libraryStats.reduce((n, l) => n + l.usage, stats.usage) },
-      storage: { used: storage.diskUse, size: storage.diskSize, available: storage.diskAvailable, percent: storage.diskUsagePercentage },
+      stats: {
+        photos: stats.photos,
+        videos: stats.videos,
+        // 文件大小是读取拍摄信息时记录的，这一步还没做完时总大小偏小
+        usage: libraryStats.reduce((n, l) => n + l.usage, stats.usage),
+        counting: queues.some((q) => ['library', 'sidecar', 'metadataExtraction'].includes(q.name) && q.statistics.active + q.statistics.waiting > 0),
+      },
+      // 本机存储：Immich 自己的数据（缩略图等）+ 整块磁盘的用量（统一用字节，前端格式化）
+      storage: {
+        immichData: immichDataUsage()?.bytes ?? null,
+        diskUsed: storage.diskUseRaw,
+        diskSize: storage.diskSizeRaw,
+        diskAvailable: storage.diskAvailableRaw,
+      },
       queues: queues
         .filter((q) => QUEUE_LABELS[q.name])
         .map((q) => ({ name: q.name, label: QUEUE_LABELS[q.name], isPaused: q.isPaused, ...q.statistics })),

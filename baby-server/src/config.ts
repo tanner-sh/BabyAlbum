@@ -10,6 +10,8 @@ const schema = z.object({
   IMMICH_API_KEY: z.string().optional(),
   // NAS 共享在容器里的挂载点（Immich 和宝宝相册挂在同一个路径，管理员在网页上选择导入哪些文件夹）
   NAS_ROOT: z.string().default('/mnt/nas'),
+  // Immich 的数据卷（只读），用来统计缩略图等占了多少空间
+  IMMICH_DATA_DIR: z.string().default('/immich-data'),
   // 挂载服务（nas-mounter）的控制 socket；不存在时 NAS 管理功能不可用
   MOUNTER_SOCKET: z.string().default('/run/mounter/mounter.sock'),
   PORT: z.coerce.number().int().default(3000),

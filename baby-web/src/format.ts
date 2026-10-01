@@ -42,9 +42,10 @@ export function formatDuration(ms: number | null): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/** 按 1024 换算，统一显示成 B / KB / MB / GB / TB */
 export function formatBytes(n: number | null): string {
   if (!n) return '';
-  const units = ['B', 'KB', 'MB', 'GB'];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (n >= 1024 && i < units.length - 1) {
     n /= 1024;
