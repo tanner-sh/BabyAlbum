@@ -242,3 +242,11 @@ npm run typecheck
 | PUT | `/api/admin/backup` | 🅰 备份位置 `{ sourceId, subPath }`（`sourceId: null` 表示本机） |
 | GET/PUT | `/api/admin/people` · `/:id` | 🅰 人物列表、命名、生日、隐藏 |
 | POST | `/api/admin/people/:id/merge` | 🅰 合并人物 `{ ids }` |
+
+## 许可证
+
+[GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）。
+
+可以自由使用、修改和分发。修改后的版本如果通过网络提供给别人使用，也必须以同样的许可证公开源代码。
+
+本项目通过 API 调用 [Immich](https://github.com/immich-app/immich)（同样是 AGPL-3.0），使用它的官方 Docker 镜像，没有包含或修改 Immich 的源代码。
