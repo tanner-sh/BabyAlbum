@@ -34,7 +34,7 @@ export function ImportProgressCard() {
             <Timer size={18} /> 导入进度
           </h2>
           <p className="muted">
-            照片读完拍摄信息后就会出现在相册里；视频要从存储上完整读一遍，比照片慢得多。
+            照片读完拍摄信息后就会出现在相册里；视频要从存储上完整读一遍，比照片慢得多。照片和视频按导入顺序排队处理，同一时间往往只处理其中一类。
             {p.sampledMinutes < 15 && ' 刚开始统计，速度要过十几分钟才准。'}
           </p>
         </div>
@@ -98,7 +98,8 @@ function TypeStat({ icon, label, unit, t, counting }: { icon: React.ReactNode; l
         <span style={{ width: `${percent}%` }} />
       </div>
       <span className="muted">
-        已处理 {done.toLocaleString()} / {t.total.toLocaleString()}（{percent}%）{t.pending > 0 && ` · ${formatEta(t.etaHours)}`}
+        已处理 {done.toLocaleString()} / {t.total.toLocaleString()}（{percent}%）
+        {t.pending > 0 && (t.queued ? ' · 排队中，等另一类处理完' : ` · ${formatEta(t.etaHours)}`)}
       </span>
     </div>
   );

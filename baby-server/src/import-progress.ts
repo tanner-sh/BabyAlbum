@@ -129,10 +129,15 @@ export function importProgress() {
   const count = counts.at(-1);
   // 照片、视频的速度用最近两小时内的统计算（10 分钟才统计一次，窗口要长一些）
   const typeRate = (key: 'image' | 'video') => ratePerHour(counts, (c) => c.t, (c) => c[key].pending, 2 * 3600_000);
+  // Immich 按队列顺序处理，经常一段时间只在处理视频（或只在处理照片）。
+  // 一类的速度不到另一类的 5% 时，说明它在排队等着，这时按速度算出的剩余时间没有意义
+  const rates = { image: typeRate('image'), video: typeRate('video') };
   const byType = (key: 'image' | 'video') => {
     if (!count) return null;
-    const rate = typeRate(key);
-    return { ...count[key], ratePerHour: rate, etaHours: eta(count[key].pending, rate) };
+    const rate = rates[key];
+    const other = rates[key === 'image' ? 'video' : 'image'];
+    const queued = count[key].pending > 0 && (rate ?? 0) < (other ?? 0) * 0.05;
+    return { ...count[key], ratePerHour: rate, etaHours: queued ? null : eta(count[key].pending, rate), queued };
   };
   return {
     importing: stages.some((s) => s.remaining > 0),

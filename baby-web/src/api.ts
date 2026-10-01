@@ -375,7 +375,8 @@ export type ImmichSettings = {
 };
 
 export type StageProgress = { name: string; label: string; remaining: number; ratePerHour: number | null; etaHours: number | null };
-export type TypeProgress = { total: number; pending: number; ratePerHour: number | null; etaHours: number | null };
+/** queued：在排队，暂时没在处理（Immich 正在处理另一类） */
+export type TypeProgress = { total: number; pending: number; ratePerHour: number | null; etaHours: number | null; queued: boolean };
 export type ImportProgress = {
   importing: boolean;
   sampledMinutes: number;
