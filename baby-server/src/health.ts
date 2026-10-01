@@ -1,15 +1,15 @@
 // 系统状态：定期检查宝宝相册依赖的各项服务，出问题时提醒管理员。
-// 比如 DNS 解析坏了（推送发不出去、证书续不了期）、证书快到期、存储断开、备份失败、导入卡住
+// 比如连不上推送服务（DNS 被污染、网络屏蔽）、证书快到期、存储断开、备份失败、导入卡住
 
-import { lookup } from 'node:dns/promises';
 import { connect } from 'node:tls';
 import type { FastifyBaseLogger } from 'fastify';
 import { config } from './config.ts';
-import { nasSources, settings } from './db.ts';
+import { nasSources, pushSubscriptions, settings } from './db.ts';
 import { immichConnected, immichStatus } from './immich-link.ts';
 import { immich } from './immich.ts';
 import { importProgress } from './import-progress.ts';
 import { getBackupTarget, isMounterAvailable, mountState, nasTarget } from './nas.ts';
+import { probe, serviceName } from './net-check.ts';
 import { notifyAdmins, pushFailure } from './push.ts';
 
 export type HealthStatus = 'ok' | 'warn' | 'error' | 'skip';
@@ -59,18 +59,40 @@ function checkStorage(): HealthCheck {
     : { key: 'storage', label: '存储', status: 'ok', message: `${sources.length} 个存储都正常` };
 }
 
-/** 能不能解析外网域名：推送通知、证书续期、下载模型都要用 */
-async function checkDns(): Promise<HealthCheck> {
-  const hosts = ['web.push.apple.com', 'fcm.googleapis.com', 'acme-v02.api.letsencrypt.org'];
-  const results = await Promise.all(hosts.map((h) => withTimeout(lookup(h), 5000).then(() => true, () => false)));
-  const failed = hosts.filter((_, i) => !results[i]);
-  if (!failed.length) return { key: 'dns', label: '域名解析', status: 'ok', message: '外网域名解析正常' };
+/**
+ * 推送服务、证书服务能不能真正连上。
+ * 不只看能不能解析出地址：在国内，被屏蔽的域名会解析出假地址（DNS 污染），解析“成功”了却发不出推送
+ */
+async function checkNetwork(): Promise<HealthCheck> {
+  // 已经有设备打开提醒时，检查这些设备用的推送服务；还没有时，检查最常用的苹果、谷歌推送
+  const subs = pushSubscriptions.all();
+  const inUse = new Set(subs.map((s) => new URL(s.endpoint).hostname));
+  const pushHosts = inUse.size ? [...inUse] : ['web.push.apple.com', 'fcm.googleapis.com'];
+  const targets = [
+    ...pushHosts.map((h) => ({ url: `https://${h}/`, name: serviceName(h), inUse: inUse.has(h) })),
+    // 证书由反向代理续期，这里只能看这台电脑连不连得上证书服务
+    ...(publicHost ? [{ url: 'https://acme-v02.api.letsencrypt.org/directory', name: 'HTTPS 证书服务（Let’s Encrypt）', inUse: false }] : []),
+  ];
+  const results = await Promise.all(targets.map((t) => probe(t.url)));
+  const failed = targets.map((t, i) => ({ ...t, result: results[i] })).filter((t) => !t.result.ok);
+  if (!failed.length) {
+    return { key: 'network', label: '网络连接', status: 'ok', message: `${targets.map((t) => t.name.replace(/（.*）$/, '')).join('、')}都连得上` };
+  }
+  const blocked = failed.some((f) => !f.result.ok && /污染|屏蔽/.test(f.result.reason));
+  const unused = failed.filter((f) => !f.inUse && f.name.includes('推送'));
   return {
-    key: 'dns',
-    label: '域名解析',
-    status: failed.length === hosts.length ? 'error' : 'warn',
-    message: `解析不了：${failed.join('、')}`,
-    hint: '推送提醒会发不出去，HTTPS 证书也可能续不了期。浏览器能上网但这里不行时，多半是电脑上的代理、VPN 软件让系统的域名解析卡住了，重启一下这些软件的网络功能试试',
+    key: 'network',
+    label: '网络连接',
+    // 正在用的推送服务连不上，提醒就发不出去了
+    status: failed.some((f) => f.inUse) ? 'error' : 'warn',
+    message: failed.map((f) => `${f.name}：${f.result.ok ? '' : f.result.reason}`).join('；'),
+    hint: [
+      blocked ? '在国内，谷歌等境外服务要通过代理才能访问。如果这台电脑上的代理软件开了“增强模式”“TUN 模式”，确认它在运行，必要时关掉再打开' : null,
+      unused.length && !inUse.size ? '还没有设备打开提醒，暂时不影响' : null,
+      unused.length && inUse.size ? `${unused.map((f) => f.name.replace(/（.*）$/, '')).join('、')}目前没有设备在用，暂时不影响` : null,
+    ]
+      .filter(Boolean)
+      .join('。') || undefined,
   };
 }
 
@@ -182,7 +204,7 @@ function checkPush(): HealthCheck {
 const CHECKS: { key: string; label: string; run: () => HealthCheck | Promise<HealthCheck> }[] = [
   { key: 'immich', label: '照片服务', run: checkImmich },
   { key: 'storage', label: '存储', run: checkStorage },
-  { key: 'dns', label: '域名解析', run: checkDns },
+  { key: 'network', label: '网络连接', run: checkNetwork },
   { key: 'cert', label: 'HTTPS 证书', run: checkCertificate },
   { key: 'backup', label: '备份', run: checkBackup },
   { key: 'disk', label: '磁盘空间', run: checkDisk },
@@ -211,7 +233,7 @@ export async function runHealthChecks(log: FastifyBaseLogger) {
 async function alert(checks: HealthCheck[], log: FastifyBaseLogger) {
   const notified = JSON.parse(settings.get('health.notified') ?? '{}') as Record<string, string>;
   const now = Date.now();
-  const problems = checks.filter((c) => c.status === 'error' || (c.status === 'warn' && ['dns', 'cert', 'storage'].includes(c.key)));
+  const problems = checks.filter((c) => c.status === 'error' || (c.status === 'warn' && ['network', 'cert', 'storage'].includes(c.key)));
   const fresh = problems.filter((c) => !notified[c.key] || now - Date.parse(notified[c.key]) > REMIND_MS);
   // 恢复正常的，下次再出问题马上提醒
   for (const key of Object.keys(notified)) if (!problems.some((c) => c.key === key)) delete notified[key];

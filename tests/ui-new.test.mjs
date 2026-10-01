@@ -260,6 +260,12 @@ check('系统状态检查了 9 项', health.checks.length === 9, health.checks.m
 check('照片服务正常', byKey.immich.status === 'ok', byKey.immich);
 check('存储正常', byKey.storage.status === 'ok' || byKey.storage.status === 'skip', byKey.storage);
 check('没通过 HTTPS 访问过时不检查证书', byKey.cert.status === 'skip', byKey.cert);
+// 实际连推送服务：测试环境能上网时应该都连得上；连不上时要说清楚是哪个服务、什么原因
+check(
+  '网络连接：实际连推送服务',
+  byKey.network && (byKey.network.status === 'ok' ? byKey.network.message.includes('苹果推送') : /推送.*：/.test(byKey.network.message)),
+  byKey.network,
+);
 await page.goto(`${BASE}/admin/health`, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.health-row');
 check('系统状态页显示每一项', (await page.$$('.health-row')).length === 9);
