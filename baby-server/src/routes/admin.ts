@@ -3,7 +3,7 @@
 
 import { readdir } from 'node:fs/promises';
 import { posix } from 'node:path';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { clearAlbumCache } from '../album.ts';
 import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, usernameSchema } from '../auth.ts';
@@ -115,6 +115,21 @@ function applyCurated(c: immich.AdminConfigDto, s: Partial<CuratedSettings>): im
   if (s.reverseGeocoding !== undefined) c.reverseGeocoding.enabled = s.reverseGeocoding;
   if (s.trashDays !== undefined) c.trash.days = s.trashDays;
   return c;
+}
+
+/** 换搜索模型后补跑语义搜索索引；Immich 还在处理上一个任务时会报“已经在运行”，稍后重试 */
+async function requeueSmartSearch(log: FastifyBaseLogger) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise((r) => setTimeout(r, 15_000));
+    try {
+      await immich.runQueueCommandLegacy({ name: immich.QueueName.SmartSearch, queueCommandDto: { command: immich.QueueCommand.Start, force: false } });
+      log.info('换了搜索模型，已开始重新计算语义搜索索引');
+      return;
+    } catch (err) {
+      log.debug({ err }, '语义搜索索引暂时排不进队列，稍后重试');
+    }
+  }
+  log.warn('换了搜索模型，但没能自动开始重新计算索引，请在照片库页面手动补跑“语义搜索索引”');
 }
 
 // ---------------------------------------------------------------- NAS 文件夹
@@ -302,10 +317,9 @@ export async function adminRoutes(app: FastifyInstance) {
     const current = await immich.getConfig();
     const previousModel = current.machineLearning.clip.modelName;
     const updated = await immich.updateConfig({ adminConfigDto: applyCurated(current, patch) });
-    // 换了搜索模型，之前算好的索引就不能用了，所有照片要重新算一遍（重复照片检测也依赖它）
-    if (patch.clipModel && patch.clipModel !== previousModel) {
-      await immich.runQueueCommandLegacy({ name: immich.QueueName.SmartSearch, queueCommandDto: { command: immich.QueueCommand.Start, force: true } });
-    }
+    // 换了搜索模型，Immich 会自己清空旧索引（必要时改向量维度）。等它处理完，再把缺索引的照片排进队列重新算。
+    // 不能马上用 force：force 也会去改维度，和 Immich 自己的处理撞在一起会导致数据库死锁
+    if (patch.clipModel && patch.clipModel !== previousModel) void requeueSmartSearch(req.log);
     return toCurated(updated);
   });
 
