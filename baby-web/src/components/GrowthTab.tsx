@@ -37,7 +37,7 @@ export function GrowthTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (it
         ))}
       </div>
       {month && <MonthSheet baby={baby} cell={month} onClose={() => setMonth(null)} onMilestone={onMilestone} />}
-      {playing && <Slideshow title={`${baby.name}的成长`} cells={withCover} onClose={() => setPlaying(false)} />}
+      {playing && <Slideshow title={`${baby.name}的成长`} slides={withCover.map((c) => ({ id: c.cover!.id, caption: c.label }))} onClose={() => setPlaying(false)} />}
     </>
   );
 }

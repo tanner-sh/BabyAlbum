@@ -3,11 +3,14 @@ import { createContext, useContext } from 'react';
 
 // ---------------------------------------------------------------- 类型（与 baby-server 的返回值对应）
 
+export type Sex = 'boy' | 'girl';
 export type Baby = {
   id: number;
   name: string;
   birthday: string;
   immichPersonId: string;
+  /** 用于和 WHO 生长标准对比，没填时为 null */
+  sex: Sex | null;
   ageLabel: string;
   thumbnailUrl: string;
 };
@@ -22,6 +25,8 @@ export type AlbumItem = {
   isFavorite: boolean;
   width: number | null;
   height: number | null;
+  /** 实况照片的视频部分 */
+  livePhotoVideoId: string | null;
   /** 宝宝在这张照片里的年龄；“全部照片”里没有 */
   age?: { label: string; days: number; months: number };
 };
@@ -57,8 +62,55 @@ export type AssetInfo = {
   babies: { id: number; name: string; ageLabel: string }[];
 };
 export type Role = 'admin' | 'member' | 'viewer';
-export type Share = { id: number; token: string; label: string; babyIds: number[]; expiresAt: string | null; createdAt: string };
-export type ShareInfo = { label: string; expiresAt: string | null; babies: Baby[] };
+export type Share = {
+  id: number;
+  token: string;
+  label: string;
+  babyIds: number[];
+  expiresAt: string | null;
+  createdAt: string;
+  hasPassword: boolean;
+  allowDownload: boolean;
+  elderMode: boolean;
+};
+export type ShareInfo =
+  | { needsPassword: true }
+  | { needsPassword: false; label: string; expiresAt: string | null; allowDownload: boolean; elderMode: boolean; babies: Baby[] };
+export type Measurement = {
+  id: number;
+  babyId: number;
+  date: string;
+  heightCm: number | null;
+  weightKg: number | null;
+  headCm: number | null;
+  note: string;
+  ageLabel: string;
+  ageDays: number;
+};
+export type JournalEntry = {
+  id: number;
+  babyId: number;
+  date: string;
+  text: string;
+  authorId: number | null;
+  authorName: string | null;
+  ageLabel: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ReviewKind = 'month' | 'year';
+export type Review = {
+  kind: ReviewKind;
+  index: number;
+  label: string;
+  from: string;
+  to: string;
+  total: number;
+  videos: number;
+  favorites: number;
+  items: AlbumItem[];
+};
+export type SearchPage = { page: number; nextPage: number | null; items: AlbumItem[] };
 export type DateIssueGroup = { folder: string; suggestedDate: string | null; items: AlbumItem[] };
 export type Me = { id: number; username: string; displayName: string; role: Role; babyIds: number[] | null };
 
@@ -90,14 +142,16 @@ export const get = <T>(url: string) => request<T>('GET', url);
 // ---------------------------------------------------------------- 相册上下文
 // 登录用户：base = /api；分享链接访客：base = /api/share/<token>，只读
 
-export type Album = { base: string; readOnly: boolean };
-export const AlbumContext = createContext<Album>({ base: '/api', readOnly: false });
+export type Album = { base: string; readOnly: boolean; allowDownload: boolean };
+export const AlbumContext = createContext<Album>({ base: '/api', readOnly: false, allowDownload: true });
 export const useAlbum = () => useContext(AlbumContext);
 
 export const thumbUrl = (album: Album, id: string, size: 'thumbnail' | 'preview' = 'thumbnail') =>
   `${album.base}/assets/${id}/thumbnail${size === 'preview' ? '?size=preview' : ''}`;
 export const videoUrl = (album: Album, id: string) => `${album.base}/assets/${id}/video`;
 export const originalUrl = (album: Album, id: string) => `${album.base}/assets/${id}/original`;
+/** 实况照片的视频：传照片的 ID */
+export const liveUrl = (album: Album, id: string) => `${album.base}/assets/${id}/live`;
 
 // ---------------------------------------------------------------- 查询
 
@@ -141,6 +195,55 @@ export function useMilestones(babyId: number) {
   return useQuery({
     queryKey: [album.base, 'milestones', babyId],
     queryFn: () => get<Milestone[]>(`${album.base}/babies/${babyId}/milestones`),
+  });
+}
+
+export function useMeasurements(babyId: number) {
+  const album = useAlbum();
+  return useQuery({
+    queryKey: [album.base, 'measurements', babyId],
+    queryFn: () => get<Measurement[]>(`${album.base}/babies/${babyId}/measurements`),
+  });
+}
+
+export function useJournal(babyId: number) {
+  const album = useAlbum();
+  return useQuery({
+    queryKey: [album.base, 'journal', babyId],
+    queryFn: () => get<JournalEntry[]>(`${album.base}/babies/${babyId}/journal`),
+  });
+}
+
+export function useDay(babyId: number, date: string | null) {
+  const album = useAlbum();
+  return useQuery({
+    queryKey: [album.base, 'day', babyId, date],
+    queryFn: () => get<AlbumItem[]>(`${album.base}/babies/${babyId}/days/${date}`),
+    enabled: !!date,
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useReview(babyId: number, kind: ReviewKind, index: number | null) {
+  const album = useAlbum();
+  return useQuery({
+    queryKey: [album.base, 'review', babyId, kind, index],
+    queryFn: () => get<Review>(`${album.base}/babies/${babyId}/review?kind=${kind}&index=${index}`),
+    enabled: index !== null && index >= 0,
+    staleTime: 30 * 60_000,
+  });
+}
+
+export function useSearch(q: string, babyId: number | null) {
+  const album = useAlbum();
+  return useInfiniteQuery({
+    queryKey: [album.base, 'search', q, babyId],
+    queryFn: ({ pageParam }) =>
+      get<SearchPage>(`${album.base}/search?q=${encodeURIComponent(q)}&page=${pageParam}${babyId ? `&baby=${babyId}` : ''}`),
+    initialPageParam: 1,
+    getNextPageParam: (last) => last.nextPage,
+    enabled: !!q.trim(),
+    staleTime: 10 * 60_000,
   });
 }
 
@@ -260,6 +363,7 @@ export type ImmichSettings = {
   machineLearning: boolean;
   facialRecognition: boolean;
   smartSearch: boolean;
+  clipModel: string;
   duplicateDetection: boolean;
   ocr: boolean;
   minFaces: number;
@@ -269,3 +373,31 @@ export type ImmichSettings = {
   reverseGeocoding: boolean;
   trashDays: number;
 };
+
+export type StageProgress = { name: string; label: string; remaining: number; ratePerHour: number | null; etaHours: number | null };
+export type TypeProgress = { total: number; pending: number; ratePerHour: number | null; etaHours: number | null };
+export type ImportProgress = {
+  importing: boolean;
+  sampledMinutes: number;
+  stages: StageProgress[];
+  photos: TypeProgress | null;
+  videos: TypeProgress | null;
+  countedAt: string | null;
+  counting: boolean;
+};
+export type PersonSuggestion = { id: string; assets: number; thumbnailUrl: string } | null;
+export type SimilarPerson = { id: string; name: string; assets: number; together: number; thumbnailUrl: string };
+export type DuplicateAsset = {
+  id: string;
+  type: AlbumItem['type'];
+  fileName: string;
+  path: string;
+  takenAt: string;
+  width: number | null;
+  height: number | null;
+  fileSize: number | null;
+  isFavorite: boolean;
+  hidden: boolean;
+};
+export type DuplicateGroup = { id: string; suggestedKeep: string[]; assets: DuplicateAsset[] };
+export type HiddenAsset = { assetId: string; reason: string; createdAt: string; fileName: string | null; path: string | null; takenAt: string | null };

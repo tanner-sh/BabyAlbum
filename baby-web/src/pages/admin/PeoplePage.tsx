@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Baby as BabyIcon, Merge } from 'lucide-react';
 import { useState } from 'react';
-import { get, request, type AdminPerson } from '../../api';
+import { get, request, type AdminPerson, type Sex, type SimilarPerson } from '../../api';
+import { SexPicker } from '../../components/ClaimBaby';
 import { Avatar, ErrorBox, Modal, Spinner, Toggle } from '../../components/ui';
 
 /** 人物：人脸识别的结果。命名、设生日、合并（同一个人被拆成了几个）、设为宝宝 */
@@ -61,6 +62,14 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
   const [birthDate, setBirthDate] = useState(person.birthDate ?? '');
   const [isHidden, setIsHidden] = useState(person.isHidden);
   const [asBaby, setAsBaby] = useState(false);
+  const [sex, setSex] = useState<Sex | null>(null);
+  // 从没和这个人物同框过的人物，可能是同一个人
+  const similar = useQuery({
+    queryKey: ['admin', 'people', 'similar', person.id],
+    queryFn: () => get<SimilarPerson[]>(`/api/admin/people/${person.id}/similar`),
+    staleTime: 5 * 60_000,
+  });
+  const maybeSame = new Set((similar.data ?? []).map((p) => p.id));
   const [merging, setMerging] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +81,7 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
     try {
       await request('PUT', `/api/admin/people/${person.id}`, { name, birthDate: birthDate || null, isHidden });
       if (merging.length) await request('POST', `/api/admin/people/${person.id}/merge`, { ids: merging });
-      if (asBaby) await request('POST', '/api/babies', { name, immichPersonId: person.id, birthday: birthDate });
+      if (asBaby) await request('POST', '/api/babies', { name, immichPersonId: person.id, birthday: birthDate, sex });
       await queryClient.invalidateQueries();
       onClose();
     } catch (e) {
@@ -81,7 +90,8 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
     }
   }
 
-  const candidates = showAll ? others : others.slice(0, 40);
+  const sorted = [...others].sort((a, b) => Number(maybeSame.has(b.id)) - Number(maybeSame.has(a.id)));
+  const candidates = showAll ? sorted : sorted.slice(0, 40);
 
   return (
     <Modal
@@ -118,6 +128,12 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
           ) : (
             <Toggle checked={asBaby} onChange={setAsBaby} label="设为宝宝" hint="在宝宝相册里按年龄整理这个人的照片（需要填名字和生日）" />
           )}
+          {asBaby && (
+            <div className="field">
+              <span>性别（用于和 WHO 生长标准对比，可以不填）</span>
+              <SexPicker value={sex} onChange={setSex} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -125,7 +141,9 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
         <h3>
           <Merge size={16} /> 合并到这个人物
         </h3>
-        <p className="muted">勾选其实是同一个人的人物（比如宝宝更小时候的照片），保存后它们的照片都会归到“{name || '这个人物'}”。</p>
+        <p className="muted">
+          勾选其实是同一个人的人物（比如宝宝更小时候的照片），保存后它们的照片都会归到“{name || '这个人物'}”。标着“可能是同一人”的从没和 TA 同框过，排在前面。
+        </p>
         <div className="merge-grid">
           {candidates.map((p) => {
             const on = merging.includes(p.id);
@@ -134,6 +152,7 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
                 <Avatar baby={{ name: p.name || '?', thumbnailUrl: p.thumbnailUrl }} size={64} />
                 <span>{p.name || '未命名'}</span>
                 <span className="muted">{p.assets} 张</span>
+                {maybeSame.has(p.id) && <span className="chip chip-accent small">可能是同一人</span>}
               </button>
             );
           })}

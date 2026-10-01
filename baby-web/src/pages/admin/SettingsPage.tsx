@@ -12,6 +12,12 @@ const TRANSCODE: { value: ImmichSettings['transcode']; label: string; hint: stri
   { value: 'all', label: '全部转码', hint: '最兼容，但最慢、最占空间' },
 ];
 
+const CLIP_MODELS = [
+  { value: 'nllb-clip-base-siglip__v1', label: '多语言（推荐）', hint: '能用中文搜索，体积适中' },
+  { value: 'XLM-Roberta-Large-Vit-B-16Plus', label: '多语言·大', hint: '中文搜索更准一些，但更占内存、更慢' },
+  { value: 'ViT-B-32__openai', label: '仅英文', hint: 'Immich 的默认模型，只能用英文搜索（beach、cake）' },
+];
+
 const CONCURRENCY_LABELS: Record<keyof ImmichSettings['concurrency'], string> = {
   library: '扫描文件夹',
   metadataExtraction: '读取拍摄信息',
@@ -111,6 +117,22 @@ export function SettingsPage() {
         <Toggle checked={s.machineLearning} onChange={(v) => set('machineLearning', v)} label="启用智能功能" hint="关闭后下面几项都不会运行" />
         <Toggle checked={s.facialRecognition} disabled={!s.machineLearning} onChange={(v) => set('facialRecognition', v)} label="人脸识别" hint="宝宝相册靠它找出有宝宝的照片，必须开启" />
         <Toggle checked={s.smartSearch} disabled={!s.machineLearning} onChange={(v) => set('smartSearch', v)} label="语义搜索" hint="用文字搜照片，比如“生日蛋糕”；查找重复照片也依赖它" />
+        {s.smartSearch && s.machineLearning && (
+          <div className="field">
+            <span>搜索模型</span>
+            <div className="role-picker">
+              {[...CLIP_MODELS, ...(CLIP_MODELS.some((m) => m.value === remote.data!.clipModel) ? [] : [{ value: remote.data!.clipModel, label: remote.data!.clipModel, hint: '当前使用的模型' }])].map((m) => (
+                <button key={m.value} type="button" className={`role-option ${s.clipModel === m.value ? 'selected' : ''}`} onClick={() => set('clipModel', m.value)}>
+                  <strong>{m.label}</strong>
+                  <span className="muted">{m.hint}</span>
+                </button>
+              ))}
+            </div>
+            {s.clipModel !== remote.data!.clipModel && (
+              <p className="notice">换模型后，所有照片的搜索索引要用新模型重新算一遍（保存后自动开始，照片多的话要几个小时），算完之前搜索结果不全。</p>
+            )}
+          </div>
+        )}
         <Toggle checked={s.duplicateDetection} disabled={!s.machineLearning || !s.smartSearch} onChange={(v) => set('duplicateDetection', v)} label="查找重复照片" />
         <Toggle checked={s.ocr} disabled={!s.machineLearning} onChange={(v) => set('ocr', v)} label="识别照片里的文字" hint="用不上可以关掉，省时间" />
         <label className="field">

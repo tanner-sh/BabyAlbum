@@ -1,11 +1,13 @@
 import { Pause, Play, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { thumbUrl, useAlbum, type GrowthCell } from '../api';
+import { thumbUrl, useAlbum } from '../api';
 
 const INTERVAL_MS = 2500;
 
-/** 成长播放：按月龄依次展示每个月的代表照片 */
-export function Slideshow({ title, cells, onClose }: { title: string; cells: GrowthCell[]; onClose: () => void }) {
+export type Slide = { id: string; caption: string };
+
+/** 幻灯片：成长播放（每个月的代表照片）、回顾播放（精选照片） */
+export function Slideshow({ title, slides: cells, onClose }: { title: string; slides: Slide[]; onClose: () => void }) {
   const album = useAlbum();
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -22,7 +24,7 @@ export function Slideshow({ title, cells, onClose }: { title: string; cells: Gro
 
   // 预加载下一张
   useEffect(() => {
-    const next = cells[index + 1]?.cover;
+    const next = cells[index + 1];
     if (next) new Image().src = thumbUrl(album, next.id, 'preview');
   }, [index, cells, album]);
 
@@ -43,10 +45,10 @@ export function Slideshow({ title, cells, onClose }: { title: string; cells: Gro
 
   return (
     <div className="slideshow">
-      <img key={cell.cover!.id} className="slideshow-img" src={thumbUrl(album, cell.cover!.id, 'preview')} alt="" />
+      <img key={cell.id} className="slideshow-img" src={thumbUrl(album, cell.id, 'preview')} alt="" />
       <div className="slideshow-caption">
         <span>{title}</span>
-        <strong>{cell.label}</strong>
+        <strong>{cell.caption}</strong>
       </div>
       <div className="slideshow-controls">
         <button

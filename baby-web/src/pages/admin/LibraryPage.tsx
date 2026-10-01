@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { get, request, type FolderListing, type ImmichOverview, type Library, type NasOverview, type Queue } from '../../api';
 import { ErrorBox, Modal, Spinner } from '../../components/ui';
 import { formatBytes, formatDateTime } from '../../format';
+import { ImportProgressCard } from './ImportProgress';
 import { StorageSection } from './StorageSection';
 
 const STATE_TEXT = {
@@ -54,6 +55,8 @@ export function LibraryPage() {
           </div>
         )}
       </section>
+
+      {o.status.state === 'connected' && <ImportProgressCard />}
 
       <StorageSection />
 

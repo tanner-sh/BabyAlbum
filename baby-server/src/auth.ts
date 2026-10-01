@@ -47,14 +47,16 @@ function readSession(req: FastifyRequest): User | null {
   }
 }
 
+/** 经 HTTPS（含反向代理转发的 X-Forwarded-Proto）访问时自动加 Secure，局域网 http 访问不受影响 */
+export const secureCookie = (req: FastifyRequest) => config.COOKIE_SECURE || req.protocol === 'https';
+
 function startSession(reply: FastifyReply, user: User) {
   const payload: SessionPayload = { uid: user.id, v: user.sessionVersion, exp: Date.now() + MAX_AGE_SECONDS * 1000 };
   reply.setCookie(COOKIE, Buffer.from(JSON.stringify(payload)).toString('base64url'), {
     signed: true,
     httpOnly: true,
     sameSite: 'lax',
-    // 经 HTTPS（含反向代理转发的 X-Forwarded-Proto）访问时自动加 Secure，局域网 http 访问不受影响
-    secure: config.COOKIE_SECURE || reply.request.protocol === 'https',
+    secure: secureCookie(reply.request),
     path: '/',
     maxAge: MAX_AGE_SECONDS,
   });
@@ -85,13 +87,13 @@ export function canSeeBaby(user: User, babyId: number) {
 // 不需要登录的接口：首次设置、登录、注册（邀请）、健康检查、分享链接（有自己的 token 校验）
 const PUBLIC = [/^\/api\/setup$/, /^\/api\/auth\/(login|register)$/, /^\/api\/invites\/[^/]+$/, /^\/api\/health$/, /^\/api\/share\//];
 
-// 简单的登录限流：同一 IP 15 分钟内最多失败 10 次
+// 简单的登录限流：同一 IP 15 分钟内最多失败 10 次（分享链接的访问密码也用它）
 const failures = new Map<string, { count: number; until: number }>();
-function tooManyFailures(ip: string) {
+export function tooManyFailures(ip: string) {
   const f = failures.get(ip);
   return !!f && f.until > Date.now() && f.count >= 10;
 }
-function recordFailure(ip: string) {
+export function recordFailure(ip: string) {
   const f = failures.get(ip);
   const prev = f && f.until > Date.now() ? f.count : 0;
   failures.set(ip, { count: prev + 1, until: Date.now() + 15 * 60_000 });

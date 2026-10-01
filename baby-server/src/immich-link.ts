@@ -54,15 +54,20 @@ async function useKey(key: string): Promise<boolean> {
 }
 
 /** 第一次连接时应用的推荐设置 */
+/** 推荐的语义搜索模型：支持中文，体积适中 */
+export const MULTILINGUAL_CLIP_MODEL = 'nllb-clip-base-siglip__v1';
+
 async function applyRecommendedSettings(log: FastifyBaseLogger) {
   if (settings.get('immich.defaultsApplied')) return;
   const cfg = await immich.getConfig();
   // 手机和相机拍的视频大多是 HEVC，现在的浏览器大多能直接播放；Immich 默认只接受 H.264，
   // 不改的话会把所有视频转码一遍（几 TB 的视频要转好几天）。需要时管理员可以在设置里打开
   cfg.ffmpeg.transcode = immich.TranscodePolicy.Disabled;
+  // Immich 默认的搜索模型只懂英文，换成多语言模型，才能用中文搜“吃蛋糕”“在海边”
+  cfg.machineLearning.clip.modelName = MULTILINGUAL_CLIP_MODEL;
   await immich.updateConfig({ adminConfigDto: cfg });
   settings.set('immich.defaultsApplied', new Date().toISOString());
-  log.info('已应用 Immich 推荐设置（视频不转码）');
+  log.info('已应用 Immich 推荐设置（视频不转码、多语言搜索模型）');
 }
 
 async function connectOnce(log: FastifyBaseLogger): Promise<ImmichState> {

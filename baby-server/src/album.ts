@@ -1,12 +1,12 @@
 // 相册的核心查询：时间线、那年今日、成长墙、按月龄查询。数据全部来自 Immich，这里只做按年龄的组织
 
 import { computeAge, currentMonths, localToday, monthDate, shiftDays } from './age.ts';
-import { dateOverrides, type Baby } from './db.ts';
+import { dateOverrides, hiddenAssets, type Baby } from './db.ts';
 import { immich } from './immich.ts';
 
 type Asset = immich.AssetResponseDto;
 
-export type AlbumItem = {
+export type PhotoItem = {
   id: string;
   type: string;
   takenAt: string;
@@ -15,11 +15,13 @@ export type AlbumItem = {
   isFavorite: boolean;
   width: number | null;
   height: number | null;
-  age: { label: string; days: number; months: number };
+  /** 实况照片的视频部分 */
+  livePhotoVideoId: string | null;
 };
 
-export function toItem(baby: Baby, a: Asset): AlbumItem {
-  const age = computeAge(baby.birthday, a.localDateTime);
+export type AlbumItem = PhotoItem & { age: { label: string; days: number; months: number } };
+
+export function toPhotoItem(a: Asset): PhotoItem {
   return {
     id: a.id,
     type: a.type,
@@ -29,8 +31,13 @@ export function toItem(baby: Baby, a: Asset): AlbumItem {
     isFavorite: a.isFavorite,
     width: a.width,
     height: a.height,
-    age: { label: age.label, days: age.days, months: age.months },
+    livePhotoVideoId: a.livePhotoVideoId ?? null,
   };
+}
+
+export function toItem(baby: Baby, a: Asset): AlbumItem {
+  const age = computeAge(baby.birthday, a.localDateTime);
+  return { ...toPhotoItem(a), age: { label: age.label, days: age.days, months: age.months } };
 }
 
 // ---------------------------------------------------------------- 简单的内存缓存
@@ -92,6 +99,77 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
+// ---------------------------------------------------------------- 实况照片、隐藏的照片
+
+/** 实况照片的视频一般只有 1.5～3 秒 */
+const LIVE_MAX_MS = 4000;
+const stemOf = (path: string) => path.slice(0, path.lastIndexOf('.')).toLowerCase();
+
+/**
+ * 实况照片的视频部分（iPhone 拍的 IMG_1234.HEIC + IMG_1234.MOV）。
+ * Immich 读完两边的拍摄信息后会自动配对并隐藏视频；配对之前，视频会被当作单独的短视频，
+ * 这里按“同一文件夹里有同名照片”识别出来
+ */
+function liveSibling(video: Asset): Promise<string | null> {
+  if (video.type !== immich.AssetTypeEnum.Video || (video.duration && video.duration > LIVE_MAX_MS)) return Promise.resolve(null);
+  const stem = stemOf(video.originalPath);
+  return cached(`live:${video.id}`, 10 * 60_000, async () => {
+    // originalPath 是“包含”匹配，结果里再精确比较一次
+    const { assets } = await immich.searchAssets({ metadataSearchDto: { originalPath: `${video.originalPath.slice(0, video.originalPath.lastIndexOf('.'))}.`, size: 10 } });
+    return assets.items.find((a) => a.type === immich.AssetTypeEnum.Image && stemOf(a.originalPath) === stem)?.id ?? null;
+  });
+}
+
+/** 照片对应的实况视频：优先用 Immich 的配对结果，没配对好之前找同名视频 */
+export function liveVideoOf(imageId: string): Promise<string | null> {
+  if (pendingMotion.has(imageId)) return Promise.resolve(pendingMotion.get(imageId)!);
+  return cached(`live-of:${imageId}`, 10 * 60_000, () => findLiveVideo(imageId));
+}
+
+async function findLiveVideo(imageId: string): Promise<string | null> {
+  const image = await immich.getAssetInfo({ id: imageId });
+  if (image.livePhotoVideoId) return image.livePhotoVideoId;
+  if (image.type !== immich.AssetTypeEnum.Image) return null;
+  const stem = stemOf(image.originalPath);
+  const { assets } = await immich.searchAssets({ metadataSearchDto: { originalPath: `${image.originalPath.slice(0, image.originalPath.lastIndexOf('.'))}.`, size: 10 } });
+  return (
+    assets.items.find((a) => a.type === immich.AssetTypeEnum.Video && stemOf(a.originalPath) === stem && (!a.duration || a.duration <= LIVE_MAX_MS))?.id ?? null
+  );
+}
+
+/**
+ * 宝宝相册里要显示的：去掉被隐藏的照片、时间线上不可见的（已配对的实况视频等），
+ * 还没配对的实况视频也去掉，并把它挂到对应的照片上
+ */
+async function tidy(assets: Asset[]): Promise<Asset[]> {
+  const hidden = hiddenAssets.ids();
+  const visible = assets.filter((a) => !hidden.has(a.id) && a.visibility === immich.AssetVisibility.Timeline);
+  const shortVideos = visible.filter((a) => a.type === immich.AssetTypeEnum.Video && (!a.duration || a.duration <= LIVE_MAX_MS));
+  const siblings = await mapLimit(shortVideos, 6, (v) => liveSibling(v).catch(() => null));
+  const motionIds = new Set<string>();
+  shortVideos.forEach((v, i) => {
+    const imageId = siblings[i];
+    if (!imageId) return;
+    motionIds.add(v.id);
+    rememberMotion(imageId, v.id);
+  });
+  return visible
+    .filter((a) => !motionIds.has(a.id))
+    .map((a) => (!a.livePhotoVideoId && pendingMotion.has(a.id) ? { ...a, livePhotoVideoId: pendingMotion.get(a.id)! } : a));
+}
+
+/**
+ * 识别出的“还没配对的实况”：照片 ID → 视频 ID。
+ * 视频没读完拍摄信息时日期可能和照片不同，两者不一定在同一页里，记下来，照片出现在别的页时也能挂上
+ */
+const pendingMotion = new Map<string, string>();
+function rememberMotion(imageId: string, videoId: string) {
+  pendingMotion.delete(imageId);
+  pendingMotion.set(imageId, videoId);
+  // 只留最近的一部分，Immich 配对完成后就用不上了
+  if (pendingMotion.size > 20_000) pendingMotion.delete(pendingMotion.keys().next().value!);
+}
+
 // ---------------------------------------------------------------- 查询
 
 /**
@@ -103,7 +181,7 @@ async function searchRange(
   baby: Baby,
   from: string,
   to: string,
-  opts: { size?: number; isFavorite?: boolean; order?: immich.AssetOrder } = {},
+  opts: { size?: number; page?: number; isFavorite?: boolean; order?: immich.AssetOrder; withPeople?: boolean } = {},
 ) {
   const overrides = dateOverrides.all();
   const { assets } = await immich.searchAssets({
@@ -114,6 +192,9 @@ async function searchRange(
       isFavorite: opts.isFavorite,
       order: opts.order ?? immich.AssetOrder.Asc,
       size: opts.size ?? 1000,
+      page: opts.page,
+      visibility: immich.AssetVisibility.Timeline,
+      withPeople: opts.withPeople,
     },
   });
   const inRange = (a: Asset) => {
@@ -125,7 +206,20 @@ async function searchRange(
     ? (await correctedAssetsOf(baby, overrides)).filter((a) => inRange(a) && (opts.isFavorite === undefined || a.isFavorite === opts.isFavorite))
     : [];
   const items = assets.items.filter((a) => !overrides.has(a.id) && inRange(a)).concat(extra);
-  return extra.length ? items.sort(byTakenAt(opts.order === immich.AssetOrder.Desc ? 'desc' : 'asc')) : items;
+  const sorted = extra.length ? items.sort(byTakenAt(opts.order === immich.AssetOrder.Desc ? 'desc' : 'asc')) : items;
+  return Object.assign(await tidy(sorted), { hasMore: !!assets.nextPage });
+}
+
+/** 一段时间内的全部照片（自动翻页），用于回顾挑选 */
+async function searchAll(baby: Baby, from: string, to: string, opts: { withPeople?: boolean } = {}) {
+  const all: Asset[] = [];
+  for (let page = 1; page <= 30; page++) {
+    const items = await searchRange(baby, from, to, { ...opts, page });
+    all.push(...items);
+    if (!items.hasMore) break;
+  }
+  // 日期更正过的照片每一页都会带上，去重
+  return [...new Map(all.map((a) => [a.id, a])).values()];
 }
 
 /**
@@ -150,12 +244,17 @@ async function pageWithCorrections(
     const extra = (await correctedFor(overrides)).filter((a) => a.localDateTime > lower && a.localDateTime <= upper);
     items = assets.items.filter((a) => !overrides.has(a.id)).concat(extra).sort(byTakenAt('desc'));
   }
-  return { items, nextPage };
+  return { items: await tidy(items), nextPage };
 }
 
 /** 时间线：按拍摄时间倒序，按月龄分组。相邻两页可能落在同一个月龄里，前端拼接时合并同名分组即可 */
 export async function timeline(baby: Baby, page: number, size: number) {
-  const { items, nextPage } = await pageWithCorrections({ personIds: [baby.immichPersonId] }, page, size, (o) => correctedAssetsOf(baby, o));
+  const { items, nextPage } = await pageWithCorrections(
+    { personIds: [baby.immichPersonId], visibility: immich.AssetVisibility.Timeline },
+    page,
+    size,
+    (o) => correctedAssetsOf(baby, o),
+  );
   const groups: { label: string; months: number; items: AlbumItem[] }[] = [];
   for (const asset of items) {
     const age = computeAge(baby.birthday, asset.localDateTime);
@@ -168,8 +267,6 @@ export async function timeline(baby: Baby, page: number, size: number) {
   }
   return { page, nextPage, groups };
 }
-
-export type PhotoItem = Omit<AlbumItem, 'age'>;
 
 /** 全部照片：照片库里的所有照片和视频（不管有没有宝宝），按拍摄时间倒序，按月份分组 */
 export async function allPhotos(page: number, size: number) {
@@ -184,16 +281,7 @@ export async function allPhotos(page: number, size: number) {
       group = { label, items: [] };
       groups.push(group);
     }
-    group.items.push({
-      id: a.id,
-      type: a.type,
-      takenAt: a.localDateTime,
-      fileName: a.originalFileName,
-      duration: a.duration,
-      isFavorite: a.isFavorite,
-      width: a.width,
-      height: a.height,
-    });
+    group.items.push(toPhotoItem(a));
   }
   return { page, nextPage, groups };
 }
@@ -295,6 +383,7 @@ export async function dateIssues(baby: Baby) {
       personIds: [baby.immichPersonId],
       takenBefore: `${shiftDays(baby.birthday, 1)}T00:00:00.000Z`,
       size: 1000,
+      visibility: immich.AssetVisibility.Timeline,
     },
   });
   const wrong = assets.items.filter((a) => !overrides.has(a.id) && a.localDateTime.slice(0, 10) < baby.birthday);
@@ -323,4 +412,142 @@ export async function dateIssues(baby: Baby) {
     };
   });
   return groups.filter((g) => g.items.length);
+}
+
+// ---------------------------------------------------------------- 某一天的照片（日记用）
+
+export async function dayItems(baby: Baby, date: string) {
+  const items = await searchRange(baby, date, shiftDays(date, 1), { size: 300 });
+  return items.map((a) => toItem(baby, a));
+}
+
+// ---------------------------------------------------------------- 语义搜索
+
+/**
+ * 用一句话搜照片（“在海边”“吃蛋糕”），由 Immich 的 CLIP 模型完成。
+ * personIds 为 null 时搜全部照片；否则只搜有这些宝宝之一的照片（Immich 的 personIds 是“同时出现”，所以逐个搜再合并）
+ */
+export async function smartSearch(query: string, personIds: string[] | null, page: number, size: number) {
+  const search = (ids?: string[]) =>
+    immich
+      .searchSmart({ smartSearchDto: { query, personIds: ids, page, size, language: 'zh-CN', visibility: immich.AssetVisibility.Timeline } })
+      .catch((err) => {
+        // 把照片服务的报错换成能看懂的提示（statusCode < 500 的错误会把 message 返回给前端）
+        if (immich.isHttpError(err) && err.status === 400 && /not enabled/i.test(String((err.data as { message?: unknown })?.message))) {
+          throw Object.assign(new Error('语义搜索没有开启，管理员可以在“管理 → 系统设置 → 人脸识别与搜索”里打开'), { statusCode: 409 });
+        }
+        if (immich.isHttpError(err) && err.status >= 500) {
+          throw Object.assign(new Error('语义搜索暂时用不了，照片服务的智能功能可能还在启动，请稍后再试'), { statusCode: 409 });
+        }
+        throw err;
+      });
+  const results = personIds === null ? [await search()] : await Promise.all(personIds.map((id) => search([id])));
+  // 多个宝宝的结果按名次交替合并
+  const merged: Asset[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < size; i++) {
+    for (const r of results) {
+      const a = r.assets.items[i];
+      if (a && !seen.has(a.id)) {
+        seen.add(a.id);
+        merged.push(a);
+      }
+    }
+  }
+  const overrides = dateOverrides.all();
+  const items = (await tidy(merged)).map((a) => toPhotoItem(corrected(a, overrides)));
+  return { page, nextPage: results.some((r) => r.assets.nextPage) ? page + 1 : null, items };
+}
+
+// ---------------------------------------------------------------- 自动回顾
+
+export type ReviewKind = 'month' | 'year';
+
+/** 回顾的时间范围：第 index 个月龄（满 index 个月起的一个月），或第 index 年（index 岁这一年） */
+export function reviewRange(baby: Baby, kind: ReviewKind, index: number) {
+  const months = kind === 'month' ? index : index * 12;
+  const span = kind === 'month' ? 1 : 12;
+  const from = monthDate(baby.birthday, months);
+  const to = monthDate(baby.birthday, months + span);
+  const label = kind === 'month' ? (index === 0 ? '第一个月' : `${computeAge(baby.birthday, from).groupLabel}`) : index === 0 ? '出生第一年' : `${index} 岁这一年`;
+  return { from, to, label };
+}
+
+/** 宝宝的脸在照片里占的比例（越大越像“主角照”） */
+async function faceShare(assetId: string, personId: string) {
+  const faces = await immich.getFaces({ id: assetId }).catch(() => []);
+  const face = faces.find((f) => f.person?.id === personId);
+  if (!face || !face.imageWidth || !face.imageHeight) return 0;
+  const area = ((face.boundingBoxX2 - face.boundingBoxX1) * (face.boundingBoxY2 - face.boundingBoxY1)) / (face.imageWidth * face.imageHeight);
+  return Math.max(0, Math.min(area, 1));
+}
+
+/**
+ * 从一段时间的照片里挑精选：
+ * - 打分：收藏的优先；分辨率高的、同框人数不多的加分；最后对入围的照片看宝宝的脸有多大（越像“主角照”越好）
+ * - 连拍去重：前后 90 秒内拍的算同一组，只留分最高的一张
+ * - 平均分布：按天（月度）或按月（年度）分桶，轮流从每个桶里取最好的，避免集中在某一天
+ * Immich 没有提供清晰度评分，所以没有按清晰度挑
+ */
+async function pickHighlights(baby: Baby, assets: Asset[], count: number, bucketOf: (a: Asset) => string) {
+  const base = (a: Asset) => {
+    const megapixels = ((a.width ?? 0) * (a.height ?? 0)) / 1e6;
+    const people = a.people?.length ?? 1;
+    return (a.isFavorite ? 100 : 0) + Math.min(megapixels, 12) + (people <= 3 ? 5 : 0);
+  };
+  const images = assets.filter((a) => a.type === immich.AssetTypeEnum.Image).sort(byTakenAt('asc'));
+
+  // 连拍去重
+  const bursts: Asset[][] = [];
+  for (const a of images) {
+    const last = bursts.at(-1);
+    if (last && Date.parse(a.localDateTime) - Date.parse(last.at(-1)!.localDateTime) <= 90_000) last.push(a);
+    else bursts.push([a]);
+  }
+  const candidates = bursts.map((b) => b.reduce((best, a) => (base(a) > base(best) ? a : best)));
+
+  /** 分桶轮流取 n 张 */
+  const spread = (list: Asset[], n: number, score: (a: Asset) => number) => {
+    const buckets = new Map<string, Asset[]>();
+    for (const a of list) buckets.set(bucketOf(a), [...(buckets.get(bucketOf(a)) ?? []), a]);
+    const queues = [...buckets.values()].map((q) => q.sort((x, y) => score(y) - score(x)));
+    queues.sort((x, y) => score(y[0]) - score(x[0]));
+    const picked: Asset[] = [];
+    while (picked.length < n && queues.some((q) => q.length)) {
+      for (const q of queues) {
+        const a = q.shift();
+        if (a && picked.length < n) picked.push(a);
+      }
+    }
+    return picked;
+  };
+
+  // 第一轮粗选 3 倍数量，第二轮查人脸大小后精选
+  const shortlist = spread(candidates, count * 3, base);
+  const shares = new Map(await mapLimit(shortlist, 6, async (a) => [a.id, await faceShare(a.id, baby.immichPersonId)] as const));
+  // 脸占画面 12% 以上的特写不再额外加分
+  const full = (a: Asset) => base(a) + Math.min(shares.get(a.id) ?? 0, 0.12) * 250;
+  return spread(shortlist, count, full).sort(byTakenAt('asc'));
+}
+
+export function review(baby: Baby, kind: ReviewKind, index: number) {
+  return cached(`review:${baby.id}:${baby.birthday}:${kind}:${index}:${localToday()}`, 30 * 60_000, async () => {
+    const { from, to, label } = reviewRange(baby, kind, index);
+    const assets = await searchAll(baby, from, to, { withPeople: true });
+    // 照片少的时候只挑四分之一，才算“精选”
+    const images = assets.filter((a) => a.type === immich.AssetTypeEnum.Image).length;
+    const count = Math.min(kind === 'month' ? 12 : 36, Math.max(kind === 'month' ? 4 : 12, Math.ceil(images / 4)));
+    const highlights = await pickHighlights(baby, assets, count, (a) => (kind === 'month' ? a.localDateTime.slice(0, 10) : String(computeAge(baby.birthday, a.localDateTime).months)));
+    return {
+      kind,
+      index,
+      label,
+      from,
+      to,
+      total: assets.length,
+      videos: assets.filter((a) => a.type === immich.AssetTypeEnum.Video).length,
+      favorites: assets.filter((a) => a.isFavorite).length,
+      items: highlights.map((a) => toItem(baby, a)),
+    };
+  });
 }

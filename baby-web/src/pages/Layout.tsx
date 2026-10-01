@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Columns2, House, Images, KeyRound, LogOut, Settings, Share2 } from 'lucide-react';
+import { Columns2, House, Images, KeyRound, LogOut, Search, Settings, Share2 } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router';
 import { AlbumContext, ApiError, canEdit, canSeeAllPhotos, request, ROLE_LABELS, useMe, useSetupStatus } from '../api';
 import { Spinner } from '../components/ui';
@@ -25,7 +25,7 @@ export function Layout() {
 
   return (
     // 只读成员看不到任何编辑按钮
-    <AlbumContext.Provider value={{ base: '/api', readOnly: !canEdit(user) }}>
+    <AlbumContext.Provider value={{ base: '/api', readOnly: !canEdit(user), allowDownload: true }}>
       <div className="app">
         <header className="topbar">
           <Link to="/" className="brand">
@@ -40,12 +40,18 @@ export function Layout() {
             {canSeeAllPhotos(user) && (
               <NavLink to="/photos">
                 <Images size={18} />
-                <span>全部照片</span>
+                <span className="wide-only">全部照片</span>
+                <span className="narrow-only">照片</span>
               </NavLink>
             )}
+            <NavLink to="/search">
+              <Search size={18} />
+              <span>搜索</span>
+            </NavLink>
             <NavLink to="/compare">
               <Columns2 size={18} />
-              <span>同龄对比</span>
+              <span className="wide-only">同龄对比</span>
+              <span className="narrow-only">对比</span>
             </NavLink>
             {canEdit(user) && (
               <NavLink to="/shares">
@@ -61,7 +67,8 @@ export function Layout() {
             )}
             <NavLink to="/account" className="user-chip" title={`${user.displayName}（${ROLE_LABELS[user.role]}）· 修改密码`}>
               <KeyRound size={16} />
-              <span>{user.displayName}</span>
+              <span className="wide-only">{user.displayName}</span>
+              <span className="narrow-only">我的</span>
             </NavLink>
             <button className="icon-btn" onClick={logout} title="退出登录" aria-label="退出登录">
               <LogOut size={18} />

@@ -1,4 +1,4 @@
-import { FolderOpen, SlidersHorizontal, UserRound, Users } from 'lucide-react';
+import { Copy, FolderOpen, SlidersHorizontal, UserRound, Users } from 'lucide-react';
 import { Navigate, NavLink, Outlet, useOutletContext } from 'react-router';
 import type { Me } from '../../api';
 
@@ -16,6 +16,10 @@ export function AdminLayout() {
         <NavLink to="people" className="tab">
           <UserRound size={16} />
           人物
+        </NavLink>
+        <NavLink to="tidy" className="tab">
+          <Copy size={16} />
+          整理
         </NavLink>
         <NavLink to="members" className="tab">
           <Users size={16} />

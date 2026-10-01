@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, ExternalLink, Link2, Plus, Trash2 } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, Link2, Lock, Pencil, Plus, Trash2, Type } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useOutletContext } from 'react-router';
 import { canEdit, get, request, useBabies, type Me, type Share } from '../api';
-import { Empty, ErrorBox, Modal, Spinner } from '../components/ui';
+import { Empty, ErrorBox, Modal, Spinner, Toggle } from '../components/ui';
 import { formatDate } from '../format';
 
 const EXPIRY = [
@@ -26,7 +26,7 @@ function SharesList() {
   const babies = useBabies();
   const shares = useQuery({ queryKey: ['shares'], queryFn: () => get<Share[]>('/api/shares') });
   const queryClient = useQueryClient();
-  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Share | 'new' | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
   if (shares.isPending || babies.isPending) return <Spinner />;
@@ -56,9 +56,11 @@ function SharesList() {
       <div className="section-actions">
         <div>
           <h1>家人分享</h1>
-          <p className="muted">生成一个链接发给家人，不用注册登录就能看宝宝的照片。对方只能看到有宝宝的照片，不能修改任何内容。</p>
+          <p className="muted">
+            生成一个链接发给家人，不用注册登录就能看宝宝的照片。对方只能看到有宝宝的照片，不能修改任何内容。可以加访问密码；给长辈的可以打开“长辈模式”，字和照片都更大。
+          </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setCreating(true)} disabled={!babies.data.length}>
+        <button className="btn btn-primary" onClick={() => setEditing('new')} disabled={!babies.data.length}>
           <Plus size={16} />
           新建分享
         </button>
@@ -76,6 +78,26 @@ function SharesList() {
                   <span className="muted">
                     {names(s.babyIds) || '（宝宝已移除）'} · {expired ? '已过期' : s.expiresAt ? `${formatDate(s.expiresAt.slice(0, 10))} 到期` : '永久有效'}
                   </span>
+                  <span className="share-flags">
+                    {s.hasPassword && (
+                      <span className="chip">
+                        <Lock size={12} />
+                        有密码
+                      </span>
+                    )}
+                    {s.allowDownload && (
+                      <span className="chip">
+                        <Download size={12} />
+                        可下载原图
+                      </span>
+                    )}
+                    {s.elderMode && (
+                      <span className="chip">
+                        <Type size={12} />
+                        长辈模式
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="share-actions">
                   <button className="btn" onClick={() => copy(s)} disabled={expired}>
@@ -85,6 +107,9 @@ function SharesList() {
                   <a className="icon-btn" href={shareUrl(s)} target="_blank" rel="noreferrer" aria-label="打开">
                     <ExternalLink size={18} />
                   </a>
+                  <button className="icon-btn" onClick={() => setEditing(s)} aria-label="修改">
+                    <Pencil size={18} />
+                  </button>
                   <button className="icon-btn" onClick={() => remove(s)} aria-label="停用">
                     <Trash2 size={18} />
                   </button>
@@ -94,32 +119,52 @@ function SharesList() {
           })}
         </ul>
       )}
-      {creating && <CreateShareModal onClose={() => setCreating(false)} />}
+      {editing && <ShareEditor share={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
   );
 }
 
-function CreateShareModal({ onClose }: { onClose: () => void }) {
+function ShareEditor({ share, onClose }: { share: Share | null; onClose: () => void }) {
   const babies = useBabies();
   const queryClient = useQueryClient();
-  const [label, setLabel] = useState('爷爷奶奶');
-  const [selected, setSelected] = useState<number[]>(babies.data?.map((b) => b.id) ?? []);
-  const [days, setDays] = useState(0);
+  const [label, setLabel] = useState(share?.label ?? '爷爷奶奶');
+  const [selected, setSelected] = useState<number[]>(share?.babyIds ?? babies.data?.map((b) => b.id) ?? []);
+  // 修改时默认保持原来的有效期（-1 表示不改）
+  const [days, setDays] = useState(share ? -1 : 0);
+  const [usePassword, setUsePassword] = useState(share?.hasPassword ?? false);
+  const [password, setPassword] = useState('');
+  const [allowDownload, setAllowDownload] = useState(share?.allowDownload ?? false);
+  const [elderMode, setElderMode] = useState(share?.elderMode ?? false);
   const [error, setError] = useState<string | null>(null);
 
+  // 新设密码时必须填；原来就有密码的，不填表示不改
+  const passwordMissing = usePassword && !password && !share?.hasPassword;
+
   async function save() {
+    setError(null);
     try {
-      await request('POST', '/api/shares', { label, babyIds: selected, expiresInDays: days || undefined });
+      const keepExpiry = share && days === -1;
+      const remainingDays = share?.expiresAt ? Math.max(1, Math.ceil((Date.parse(share.expiresAt) - Date.now()) / 86_400_000)) : undefined;
+      const body = {
+        label,
+        babyIds: selected,
+        expiresInDays: keepExpiry ? remainingDays : days || undefined,
+        password: !usePassword ? null : password || undefined,
+        allowDownload,
+        elderMode,
+      };
+      if (share) await request('PUT', `/api/shares/${share.id}`, body);
+      else await request('POST', '/api/shares', body);
       await queryClient.invalidateQueries({ queryKey: ['shares'] });
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '创建失败');
+      setError(e instanceof Error ? e.message : '保存失败');
     }
   }
 
   return (
     <Modal
-      title="新建分享链接"
+      title={share ? '修改分享' : '新建分享链接'}
       onClose={onClose}
       footer={
         <>
@@ -127,8 +172,8 @@ function CreateShareModal({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={!label.trim() || !selected.length} onClick={save}>
-            创建
+          <button className="btn btn-primary" disabled={!label.trim() || !selected.length || passwordMissing} onClick={save}>
+            {share ? '保存' : '创建'}
           </button>
         </>
       }
@@ -154,8 +199,13 @@ function CreateShareModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="field">
-          <span>有效期</span>
+          <span>有效期{share ? '（从今天重新算）' : ''}</span>
           <div className="chips">
+            {share && (
+              <button type="button" className={`chip ${days === -1 ? 'chip-accent' : ''}`} onClick={() => setDays(-1)}>
+                不改
+              </button>
+            )}
             {EXPIRY.map((e) => (
               <button key={e.days} type="button" className={`chip ${days === e.days ? 'chip-accent' : ''}`} onClick={() => setDays(e.days)}>
                 {e.label}
@@ -163,6 +213,15 @@ function CreateShareModal({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         </div>
+        <Toggle checked={usePassword} onChange={setUsePassword} label="访问密码" hint="打开链接时要先输入密码，适合发到群里的链接" />
+        {usePassword && (
+          <label className="field">
+            <span>{share?.hasPassword ? '新密码（不填表示不改）' : '密码（至少 4 位）'}</span>
+            <input value={password} onChange={(e) => setPassword(e.target.value)} minLength={4} maxLength={100} autoComplete="new-password" />
+          </label>
+        )}
+        <Toggle checked={allowDownload} onChange={setAllowDownload} label="允许下载原图" hint="关闭时只能在线看，看不到下载按钮" />
+        <Toggle checked={elderMode} onChange={setElderMode} label="长辈模式" hint="字更大、照片更大，适合给爷爷奶奶、外公外婆看" />
         {error && <div className="error-box">{error}</div>}
       </div>
     </Modal>

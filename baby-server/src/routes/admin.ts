@@ -8,9 +8,10 @@ import { z } from 'zod';
 import { clearAlbumCache } from '../album.ts';
 import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, usernameSchema } from '../auth.ts';
 import { config } from '../config.ts';
-import { babies, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
+import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
+import { importProgress } from '../import-progress.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
-import { connectWithCredentials, immichConnected, immichStatus } from '../immich-link.ts';
+import { connectWithCredentials, immichConnected, immichStatus, MULTILINGUAL_CLIP_MODEL } from '../immich-link.ts';
 import { immich } from '../immich.ts';
 import { hashPassword } from '../password.ts';
 import { immichDataUsage } from '../storage-usage.ts';
@@ -53,6 +54,9 @@ const QUEUE_LABELS: Partial<Record<immich.QueueName, string>> = {
 
 // ---------------------------------------------------------------- 系统设置：只开放常用的几项，用中文说明
 
+/** 语义搜索模型：只开放几个有代表性的 */
+export const CLIP_MODELS = ['ViT-B-32__openai', MULTILINGUAL_CLIP_MODEL, 'XLM-Roberta-Large-Vit-B-16Plus'] as const;
+
 const concurrencyKeys = ['library', 'metadataExtraction', 'thumbnailGeneration', 'faceDetection', 'smartSearch', 'videoConversion'] as const;
 
 const settingsSchema = z.object({
@@ -61,6 +65,7 @@ const settingsSchema = z.object({
   machineLearning: z.boolean(),
   facialRecognition: z.boolean(),
   smartSearch: z.boolean(),
+  clipModel: z.string().min(1).max(100),
   duplicateDetection: z.boolean(),
   ocr: z.boolean(),
   minFaces: z.number().int().min(1).max(50),
@@ -82,6 +87,7 @@ function toCurated(c: immich.AdminConfigDto): CuratedSettings {
     machineLearning: c.machineLearning.enabled,
     facialRecognition: c.machineLearning.facialRecognition.enabled,
     smartSearch: c.machineLearning.clip.enabled,
+    clipModel: c.machineLearning.clip.modelName,
     duplicateDetection: c.machineLearning.duplicateDetection.enabled,
     ocr: c.machineLearning.ocr.enabled,
     minFaces: c.machineLearning.facialRecognition.minFaces,
@@ -99,6 +105,7 @@ function applyCurated(c: immich.AdminConfigDto, s: Partial<CuratedSettings>): im
   if (s.machineLearning !== undefined) c.machineLearning.enabled = s.machineLearning;
   if (s.facialRecognition !== undefined) c.machineLearning.facialRecognition.enabled = s.facialRecognition;
   if (s.smartSearch !== undefined) c.machineLearning.clip.enabled = s.smartSearch;
+  if (s.clipModel) c.machineLearning.clip.modelName = s.clipModel;
   if (s.duplicateDetection !== undefined) c.machineLearning.duplicateDetection.enabled = s.duplicateDetection;
   if (s.ocr !== undefined) c.machineLearning.ocr.enabled = s.ocr;
   if (s.minFaces !== undefined) c.machineLearning.facialRecognition.minFaces = s.minFaces;
@@ -292,9 +299,18 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.put('/api/admin/immich/settings', async (req) => {
     const patch = settingsSchema.partial().parse(req.body);
-    const updated = await immich.updateConfig({ adminConfigDto: applyCurated(await immich.getConfig(), patch) });
+    const current = await immich.getConfig();
+    const previousModel = current.machineLearning.clip.modelName;
+    const updated = await immich.updateConfig({ adminConfigDto: applyCurated(current, patch) });
+    // 换了搜索模型，之前算好的索引就不能用了，所有照片要重新算一遍（重复照片检测也依赖它）
+    if (patch.clipModel && patch.clipModel !== previousModel) {
+      await immich.runQueueCommandLegacy({ name: immich.QueueName.SmartSearch, queueCommandDto: { command: immich.QueueCommand.Start, force: true } });
+    }
     return toCurated(updated);
   });
+
+  // ---- 导入进度（照片、视频各剩多少，预计还要多久）
+  app.get('/api/admin/import-progress', async () => importProgress());
 
   // ---- NAS 文件夹浏览（选择导入哪些文件夹）
   app.get('/api/admin/folders', async (req, reply) => {
@@ -552,6 +568,50 @@ export async function adminRoutes(app: FastifyInstance) {
       .sort((a, b) => b.assets - a.assets);
   });
 
+  // ---- 宝宝认领引导：照片最多、还没命名也没设为宝宝的人物，很可能就是宝宝
+  const dismissedPeople = () => new Set<string>(JSON.parse(settings.get('people.dismissed') ?? '[]'));
+
+  app.get('/api/admin/people/suggestion', async () => {
+    const { people } = await immich.getAllPeople({ withHidden: false, page: 1, size: 100 });
+    const linked = new Set(babies.list().map((b) => b.immichPersonId));
+    const dismissed = dismissedPeople();
+    const candidates = people.filter((p) => !p.name && !linked.has(p.id) && !dismissed.has(p.id)).slice(0, 30);
+    const counts = await mapLimit(candidates, 8, (p) => immich.getPersonStatistics({ id: p.id }).then((s) => s.assets).catch(() => 0));
+    const best = candidates.map((p, i) => ({ p, assets: counts[i] })).sort((a, b) => b.assets - a.assets)[0];
+    // 照片太少的不提示（可能还在识别中，或者只是路人）
+    if (!best || best.assets < 20) return null;
+    return { id: best.p.id, assets: best.assets, thumbnailUrl: `/api/people/${best.p.id}/thumbnail` };
+  });
+
+  app.post('/api/admin/people/:id/dismiss', async (req) => {
+    const { id } = uuidParams.parse(req.params);
+    const dismissed = dismissedPeople();
+    dismissed.add(id);
+    settings.set('people.dismissed', JSON.stringify([...dismissed].slice(-500)));
+    return { ok: true };
+  });
+
+  /**
+   * 可能和这个人物是同一个人的其他人物（宝宝不同年龄段长相差别大，经常被拆成好几个）。
+   * Immich 不提供人脸相似度，这里用一个可靠的排除法：同一个人不会和自己同框，
+   * 所以和这个人物同框过的（爸爸妈妈、兄弟姐妹）都排除；剩下的按照片数量排序
+   */
+  app.get('/api/admin/people/:id/similar', async (req) => {
+    const { id } = uuidParams.parse(req.params);
+    const { people } = await immich.getAllPeople({ withHidden: false, page: 1, size: 80 });
+    const otherBabies = new Set(babies.list().filter((b) => b.immichPersonId !== id).map((b) => b.immichPersonId));
+    const candidates = people.filter((p) => p.id !== id && !otherBabies.has(p.id)).slice(0, 40);
+    const result = await mapLimit(candidates, 6, async (p) => {
+      const [together, stats] = await Promise.all([
+        immich.searchAssetStatistics({ statisticsSearchDto: { personIds: [id, p.id] } }).then((r) => r.total),
+        immich.getPersonStatistics({ id: p.id }),
+      ]);
+      return { id: p.id, name: p.name, assets: stats.assets, together, thumbnailUrl: `/api/people/${p.id}/thumbnail` };
+    });
+    // 偶尔有误识别，同框不超过 1% 的也算没同框过
+    return result.filter((p) => p.assets > 0 && p.together <= Math.max(1, p.assets * 0.01)).sort((a, b) => b.assets - a.assets);
+  });
+
   app.put('/api/admin/people/:id', async (req) => {
     const { id } = uuidParams.parse(req.params);
     const body = z.object({ name: z.string().trim().max(50).optional(), birthDate: z.iso.date().nullable().optional(), isHidden: z.boolean().optional() }).parse(req.body);
@@ -572,5 +632,76 @@ export async function adminRoutes(app: FastifyInstance) {
     if (moved) babies.relink(moved.id, id);
     clearAlbumCache();
     return { ok: true };
+  });
+
+  // ======== 重复照片（Immich 的重复检测）：只提示，不删除存储上的文件
+
+  const toDuplicateAsset = (a: immich.AssetResponseDto, hidden: Set<string>) => ({
+    id: a.id,
+    type: a.type,
+    fileName: a.originalFileName,
+    // /mnt/nas/1/宝宝相册/... → 存储名/宝宝相册/...
+    path: storagePath(a.originalPath),
+    takenAt: a.localDateTime,
+    width: a.width,
+    height: a.height,
+    fileSize: a.exifInfo?.fileSizeInByte ?? null,
+    isFavorite: a.isFavorite,
+    hidden: hidden.has(a.id),
+  });
+
+  /** 文件在哪个存储的哪个位置，给人看的 */
+  function storagePath(path: string) {
+    if (!path.startsWith(`${config.NAS_ROOT}/`)) return path;
+    const [id, ...rest] = path.slice(config.NAS_ROOT.length + 1).split('/');
+    const name = nasSources.list().find((n) => String(n.id) === id)?.name ?? id;
+    return [name, ...rest].join('/');
+  }
+
+  app.get('/api/admin/duplicates', async () => {
+    const groups = await immich.getAssetDuplicates();
+    const hidden = hiddenAssets.ids();
+    return groups
+      .map((g) => ({
+        id: g.duplicateId,
+        suggestedKeep: g.suggestedKeepAssetIds,
+        assets: g.assets.map((a) => toDuplicateAsset(a, hidden)),
+      }))
+      // 只剩一张没隐藏的组已经处理完了，排到后面
+      .sort((x, y) => Number(x.assets.filter((a) => !a.hidden).length <= 1) - Number(y.assets.filter((a) => !a.hidden).length <= 1));
+  });
+
+  // 不是重复：让 Immich 忘掉这一组
+  app.delete('/api/admin/duplicates/:id', async (req, reply) => {
+    const { id } = uuidParams.parse(req.params);
+    await immich.deleteDuplicate({ id });
+    return reply.code(204).send();
+  });
+
+  // ======== 在宝宝相册里隐藏的照片（存储上的文件和 Immich 都不动，随时可以恢复）
+
+  app.get('/api/admin/hidden', async () => {
+    const list = hiddenAssets.list();
+    const infos = await mapLimit(list, 8, (h) => immich.getAssetInfo({ id: h.assetId }).catch(() => null));
+    return list.map((h, i) => ({
+      ...h,
+      fileName: infos[i]?.originalFileName ?? null,
+      path: infos[i] ? storagePath(infos[i].originalPath) : null,
+      takenAt: infos[i]?.localDateTime ?? null,
+    }));
+  });
+
+  app.post('/api/admin/hidden', async (req) => {
+    const { assetIds, reason } = z.object({ assetIds: z.array(z.uuid()).min(1).max(500), reason: z.string().max(50).default('') }).parse(req.body);
+    hiddenAssets.add(assetIds, reason);
+    clearAlbumCache();
+    return { hidden: assetIds.length };
+  });
+
+  app.delete('/api/admin/hidden/:id', async (req, reply) => {
+    const { id } = uuidParams.parse(req.params);
+    if (!hiddenAssets.remove(id)) return reply.code(404).send({ message: '这张照片没有被隐藏' });
+    clearAlbumCache();
+    return reply.code(204).send();
   });
 }

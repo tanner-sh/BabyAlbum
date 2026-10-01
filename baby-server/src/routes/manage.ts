@@ -10,20 +10,23 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { allPhotos, clearAlbumCache, dateIssues } from '../album.ts';
 import { adminOnly, canSeeBaby, editors, newToken } from '../auth.ts';
-import { babies, dateOverrides, milestones, shares, type Baby, type User } from '../db.ts';
+import { babies, dateOverrides, growthRecords, journal, milestones, shares, type Baby, type Share, type User } from '../db.ts';
 import { immich, proxyMedia } from '../immich.ts';
-import { assetBelongsTo, milestoneView, registerAlbumRoutes, withAge } from './album.ts';
+import { hashPassword } from '../password.ts';
+import { assetBelongsTo, journalView, measurementView, milestoneView, registerAlbumRoutes, withAge } from './album.ts';
 
 const idParams = z.object({ id: z.coerce.number().int() });
 const uuidParams = z.object({ id: z.uuid() });
 
+const sexSchema = z.enum(['boy', 'girl']).nullable();
 const babyBody = z.object({
   name: z.string().trim().min(1).max(50),
   immichPersonId: z.uuid(),
   // 不填时使用人物上设置的生日
   birthday: z.iso.date().optional(),
+  sex: sexSchema.default(null),
 });
-const babyPatch = z.object({ name: z.string().trim().min(1).max(50).optional(), birthday: z.iso.date().optional() });
+const babyPatch = z.object({ name: z.string().trim().min(1).max(50).optional(), birthday: z.iso.date().optional(), sex: sexSchema.optional() });
 
 const milestoneBody = z.object({
   title: z.string().trim().min(1).max(100),
@@ -32,12 +35,32 @@ const milestoneBody = z.object({
   coverAssetId: z.uuid().nullable().default(null),
 });
 
+// 成长数据：至少填一项；范围放宽到 0–18 岁可能出现的数值
+const measurementBody = z
+  .object({
+    date: z.iso.date(),
+    heightCm: z.number().min(30).max(200).nullable().default(null),
+    weightKg: z.number().min(0.5).max(150).nullable().default(null),
+    headCm: z.number().min(20).max(70).nullable().default(null),
+    note: z.string().max(500).default(''),
+  })
+  .refine((r) => r.heightCm !== null || r.weightKg !== null || r.headCm !== null, '身高、体重、头围至少填一项');
+
+const journalBody = z.object({ date: z.iso.date(), text: z.string().trim().min(1, '写点什么吧').max(10_000) });
+
 const shareBody = z.object({
   label: z.string().trim().min(1).max(50),
   babyIds: z.array(z.number().int()).min(1),
   // 不填表示永久有效
   expiresInDays: z.number().int().min(1).max(3650).optional(),
+  // 访问密码：新建时不填表示不设密码；修改时 undefined 表示不改，null 表示去掉密码
+  password: z.string().min(4, '密码至少 4 位').max(100).nullable().optional(),
+  allowDownload: z.boolean().default(false),
+  elderMode: z.boolean().default(false),
 });
+
+/** 返回给前端的分享：不带密码哈希 */
+const shareView = ({ passwordHash, ...s }: Share) => ({ ...s, hasPassword: !!passwordHash });
 
 // ---------------------------------------------------------------- 按用户过滤
 
@@ -83,7 +106,7 @@ export async function manageRoutes(app: FastifyInstance) {
     const birthday = body.birthday ?? person.birthDate;
     if (!birthday) return reply.code(400).send({ message: '请填写生日' });
     try {
-      return reply.code(201).send(withAge(babies.create({ name: body.name, birthday, immichPersonId: person.id })));
+      return reply.code(201).send(withAge(babies.create({ name: body.name, birthday, immichPersonId: person.id, sex: body.sex })));
     } catch (err) {
       if (err instanceof Error && err.message.includes('UNIQUE')) return reply.code(409).send({ message: '这个人物已经关联了宝宝' });
       throw err;
@@ -126,6 +149,55 @@ export async function manageRoutes(app: FastifyInstance) {
     const current = milestones.get(id);
     if (!current || !babyFor(req, reply, current.babyId)) return reply.sent ? reply : reply.code(404).send({ message: '里程碑不存在' });
     milestones.remove(id);
+    return reply.code(204).send();
+  });
+
+  // ---------- 成长数据（读取接口在 album.ts 中）
+  app.post('/api/babies/:id/measurements', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const baby = babyFor(req, reply, id);
+    if (!baby) return reply;
+    return reply.code(201).send(measurementView(baby, growthRecords.create({ babyId: id, ...measurementBody.parse(req.body) })));
+  });
+
+  app.put('/api/measurements/:id', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const current = growthRecords.get(id);
+    const baby = current && babyFor(req, reply, current.babyId);
+    if (!baby) return reply.sent ? reply : reply.code(404).send({ message: '记录不存在' });
+    return measurementView(baby, growthRecords.update(id, measurementBody.parse(req.body))!);
+  });
+
+  app.delete('/api/measurements/:id', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const current = growthRecords.get(id);
+    if (!current || !babyFor(req, reply, current.babyId)) return reply.sent ? reply : reply.code(404).send({ message: '记录不存在' });
+    growthRecords.remove(id);
+    return reply.code(204).send();
+  });
+
+  // ---------- 日记（读取接口在 album.ts 中）
+  app.post('/api/babies/:id/journal', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const baby = babyFor(req, reply, id);
+    if (!baby) return reply;
+    const entry = journal.create({ babyId: id, ...journalBody.parse(req.body), authorId: req.user!.id });
+    return reply.code(201).send(journalView(baby, entry));
+  });
+
+  app.put('/api/journal/:id', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const current = journal.get(id);
+    const baby = current && babyFor(req, reply, current.babyId);
+    if (!baby) return reply.sent ? reply : reply.code(404).send({ message: '日记不存在' });
+    return journalView(baby, journal.update(id, journalBody.parse(req.body))!);
+  });
+
+  app.delete('/api/journal/:id', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const current = journal.get(id);
+    if (!current || !babyFor(req, reply, current.babyId)) return reply.sent ? reply : reply.code(404).send({ message: '日记不存在' });
+    journal.remove(id);
     return reply.code(204).send();
   });
 
@@ -173,24 +245,39 @@ export async function manageRoutes(app: FastifyInstance) {
   // ---------- 家人分享链接（家人只能分享、管理自己能看的宝宝）
   const shareVisible = (user: User, babyIds: number[]) => babyIds.every((id) => canSeeBaby(user, id));
 
-  app.get('/api/shares', { preHandler: editors }, async (req) => shares.list().filter((s) => shareVisible(req.user!, s.babyIds)));
+  app.get('/api/shares', { preHandler: editors }, async (req) => shares.list().filter((s) => shareVisible(req.user!, s.babyIds)).map(shareView));
+
+  const shareOptions = async (body: z.infer<typeof shareBody>, previousHash: string | null) => ({
+    label: body.label,
+    babyIds: body.babyIds,
+    expiresAt: body.expiresInDays ? new Date(Date.now() + body.expiresInDays * 86_400_000).toISOString() : null,
+    passwordHash: body.password === undefined ? previousHash : body.password === null ? null : await hashPassword(body.password),
+    allowDownload: body.allowDownload,
+    elderMode: body.elderMode,
+  });
 
   app.post('/api/shares', { preHandler: editors }, async (req, reply) => {
     const body = shareBody.parse(req.body);
     const allowed = new Set(visibleBabies(req.user!).map((b) => b.id));
     if (!body.babyIds.every((id) => allowed.has(id))) return reply.code(400).send({ message: '宝宝不存在' });
-    const share = shares.create({
-      token: newToken(),
-      label: body.label,
-      babyIds: body.babyIds,
-      expiresAt: body.expiresInDays ? new Date(Date.now() + body.expiresInDays * 86_400_000).toISOString() : null,
-    });
-    return reply.code(201).send(share);
+    const share = shares.create({ token: newToken(), ...(await shareOptions(body, null)) });
+    return reply.code(201).send(shareView(share));
+  });
+
+  // 修改：有效期从现在重新算（expiresInDays 不填表示永久）；改了密码后，已经输过旧密码的人要重新输入
+  app.put('/api/shares/:id', { preHandler: editors }, async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const current = shares.get(id);
+    if (!current || !shareVisible(req.user!, current.babyIds)) return reply.code(404).send({ message: '分享不存在' });
+    const body = shareBody.parse(req.body);
+    const allowed = new Set(visibleBabies(req.user!).map((b) => b.id));
+    if (!body.babyIds.every((b) => allowed.has(b))) return reply.code(400).send({ message: '宝宝不存在' });
+    return shareView(shares.update(id, await shareOptions(body, current.passwordHash))!);
   });
 
   app.delete('/api/shares/:id', { preHandler: editors }, async (req, reply) => {
     const { id } = idParams.parse(req.params);
-    const share = shares.list().find((s) => s.id === id);
+    const share = shares.get(id);
     if (!share || !shareVisible(req.user!, share.babyIds)) return reply.code(404).send({ message: '分享不存在' });
     shares.remove(id);
     return reply.code(204).send();
@@ -210,5 +297,8 @@ export async function manageRoutes(app: FastifyInstance) {
   registerAlbumRoutes(app, '/api', async (req) => ({
     babies: visibleBabies(req.user!),
     canAccessAsset: (assetId) => canAccessAsset(req.user!, assetId),
+    allowDownload: true,
+    // 和“全部照片”的权限一致：只读成员、受限成员只能搜有宝宝的照片
+    searchAll: req.user!.role !== 'viewer' && unrestricted(req.user!),
   }));
 }

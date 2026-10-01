@@ -86,6 +86,47 @@ db.exec(`
     value TEXT NOT NULL
   );
 
+  -- 成长数据：身高（身长）、体重、头围，和 WHO 生长标准对比
+  CREATE TABLE IF NOT EXISTS growth_records (
+    id         INTEGER PRIMARY KEY,
+    baby_id    INTEGER NOT NULL REFERENCES babies(id) ON DELETE CASCADE,
+    date       TEXT NOT NULL,                -- YYYY-MM-DD
+    height_cm  REAL,
+    weight_kg  REAL,
+    head_cm    REAL,
+    note       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS growth_records_baby ON growth_records(baby_id, date);
+
+  -- 日记：给某一天写几句话，和当天的照片放在一起
+  CREATE TABLE IF NOT EXISTS journal_entries (
+    id         INTEGER PRIMARY KEY,
+    baby_id    INTEGER NOT NULL REFERENCES babies(id) ON DELETE CASCADE,
+    date       TEXT NOT NULL,                -- YYYY-MM-DD
+    text       TEXT NOT NULL,
+    author_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS journal_entries_baby ON journal_entries(baby_id, date);
+
+  -- 在宝宝相册里隐藏的照片（比如重复的照片）：只是不显示，存储上的文件和 Immich 都不动
+  CREATE TABLE IF NOT EXISTS hidden_assets (
+    asset_id   TEXT PRIMARY KEY,             -- Immich asset ID
+    reason     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- 手机推送（Web Push）的订阅：添加到主屏幕后可以收到生日回顾等通知
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint   TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   -- 家人分享链接：免登录、只读，只能看到指定宝宝的照片
   CREATE TABLE IF NOT EXISTS shares (
     id         INTEGER PRIMARY KEY,
@@ -106,22 +147,42 @@ function addColumn(table: string, column: string, definition: string) {
 // 早期版本只支持 SMB
 addColumn('nas_sources', 'protocol', "TEXT NOT NULL DEFAULT 'smb'");
 addColumn('nas_sources', 'url', "TEXT NOT NULL DEFAULT ''");
+// 宝宝性别：用于和 WHO 生长标准对比（男孩、女孩的标准不同）
+addColumn('babies', 'sex', 'TEXT');
+// 分享链接：访问密码、是否允许下载原图、长辈模式（大字大图）。早期版本的分享都允许下载，保持不变
+addColumn('shares', 'password_hash', 'TEXT');
+if (!(db.prepare('PRAGMA table_info(shares)').all() as { name: string }[]).some((c) => c.name === 'allow_download')) {
+  db.exec('ALTER TABLE shares ADD COLUMN allow_download INTEGER NOT NULL DEFAULT 0; UPDATE shares SET allow_download = 1');
+}
+addColumn('shares', 'elder_mode', 'INTEGER NOT NULL DEFAULT 0');
 
-export type Baby = { id: number; name: string; birthday: string; immichPersonId: string };
+export type Sex = 'boy' | 'girl';
+export type Baby = { id: number; name: string; birthday: string; immichPersonId: string; sex: Sex | null };
 export type Milestone = { id: number; babyId: number; title: string; date: string; note: string; coverAssetId: string | null };
-export type Share = { id: number; token: string; label: string; babyIds: number[]; expiresAt: string | null; createdAt: string };
+export type Share = {
+  id: number;
+  token: string;
+  label: string;
+  babyIds: number[];
+  expiresAt: string | null;
+  createdAt: string;
+  /** 设置了访问密码时是密码哈希 */
+  passwordHash: string | null;
+  allowDownload: boolean;
+  elderMode: boolean;
+};
 
-const babyCols = 'id, name, birthday, immich_person_id AS immichPersonId';
+const babyCols = 'id, name, birthday, immich_person_id AS immichPersonId, sex';
 
 export const babies = {
   list: () => db.prepare(`SELECT ${babyCols} FROM babies ORDER BY birthday`).all() as Baby[],
   get: (id: number) => db.prepare(`SELECT ${babyCols} FROM babies WHERE id = ?`).get(id) as Baby | undefined,
   create: (b: Omit<Baby, 'id'>) =>
     db
-      .prepare(`INSERT INTO babies (name, birthday, immich_person_id) VALUES (?, ?, ?) RETURNING ${babyCols}`)
-      .get(b.name, b.birthday, b.immichPersonId) as Baby,
-  update: (id: number, b: Pick<Baby, 'name' | 'birthday'>) =>
-    db.prepare(`UPDATE babies SET name = ?, birthday = ? WHERE id = ? RETURNING ${babyCols}`).get(b.name, b.birthday, id) as
+      .prepare(`INSERT INTO babies (name, birthday, immich_person_id, sex) VALUES (?, ?, ?, ?) RETURNING ${babyCols}`)
+      .get(b.name, b.birthday, b.immichPersonId, b.sex) as Baby,
+  update: (id: number, b: Pick<Baby, 'name' | 'birthday' | 'sex'>) =>
+    db.prepare(`UPDATE babies SET name = ?, birthday = ?, sex = ? WHERE id = ? RETURNING ${babyCols}`).get(b.name, b.birthday, b.sex, id) as
       | Baby
       | undefined,
   remove: (id: number) => db.prepare('DELETE FROM babies WHERE id = ?').run(id).changes > 0,
@@ -146,19 +207,33 @@ export const milestones = {
   remove: (id: number) => db.prepare('DELETE FROM milestones WHERE id = ?').run(id).changes > 0,
 };
 
-type ShareRow = Omit<Share, 'babyIds'> & { babyIds: string };
-const shareCols = 'id, token, label, baby_ids AS babyIds, expires_at AS expiresAt, created_at AS createdAt';
-const toShare = (row: ShareRow | undefined): Share | undefined => row && { ...row, babyIds: JSON.parse(row.babyIds) };
+type ShareRow = Omit<Share, 'babyIds' | 'allowDownload' | 'elderMode'> & { babyIds: string; allowDownload: number; elderMode: number };
+const shareCols = `id, token, label, baby_ids AS babyIds, expires_at AS expiresAt, created_at AS createdAt,
+  password_hash AS passwordHash, allow_download AS allowDownload, elder_mode AS elderMode`;
+const toShare = (row: ShareRow | undefined): Share | undefined =>
+  row && { ...row, babyIds: JSON.parse(row.babyIds), allowDownload: !!row.allowDownload, elderMode: !!row.elderMode };
+export type ShareOptions = Pick<Share, 'label' | 'babyIds' | 'expiresAt' | 'passwordHash' | 'allowDownload' | 'elderMode'>;
 
 export const shares = {
   list: () => (db.prepare(`SELECT ${shareCols} FROM shares ORDER BY id DESC`).all() as ShareRow[]).map((r) => toShare(r)!),
   byToken: (token: string) => toShare(db.prepare(`SELECT ${shareCols} FROM shares WHERE token = ?`).get(token) as ShareRow | undefined),
-  create: (s: Omit<Share, 'id' | 'createdAt'>) =>
+  get: (id: number) => toShare(db.prepare(`SELECT ${shareCols} FROM shares WHERE id = ?`).get(id) as ShareRow | undefined),
+  create: (s: ShareOptions & { token: string }) =>
     toShare(
       db
-        .prepare(`INSERT INTO shares (token, label, baby_ids, expires_at) VALUES (?, ?, ?, ?) RETURNING ${shareCols}`)
-        .get(s.token, s.label, JSON.stringify(s.babyIds), s.expiresAt) as ShareRow,
+        .prepare(
+          `INSERT INTO shares (token, label, baby_ids, expires_at, password_hash, allow_download, elder_mode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${shareCols}`,
+        )
+        .get(s.token, s.label, JSON.stringify(s.babyIds), s.expiresAt, s.passwordHash, s.allowDownload ? 1 : 0, s.elderMode ? 1 : 0) as ShareRow,
     )!,
+  update: (id: number, s: ShareOptions) =>
+    toShare(
+      db
+        .prepare(
+          `UPDATE shares SET label = ?, baby_ids = ?, expires_at = ?, password_hash = ?, allow_download = ?, elder_mode = ? WHERE id = ? RETURNING ${shareCols}`,
+        )
+        .get(s.label, JSON.stringify(s.babyIds), s.expiresAt, s.passwordHash, s.allowDownload ? 1 : 0, s.elderMode ? 1 : 0, id) as ShareRow | undefined,
+    ),
   remove: (id: number) => db.prepare('DELETE FROM shares WHERE id = ?').run(id).changes > 0,
 };
 
@@ -315,4 +390,71 @@ export const nasSources = {
       )
       .get(n.name, n.protocol, n.host, n.share, n.url, n.subPath, n.username, n.password, n.vers, id) as NasSource | undefined,
   remove: (id: number) => db.prepare('DELETE FROM nas_sources WHERE id = ?').run(id).changes > 0,
+};
+
+// ---------------------------------------------------------------- 成长数据
+
+export type GrowthRecord = { id: number; babyId: number; date: string; heightCm: number | null; weightKg: number | null; headCm: number | null; note: string };
+const growthCols = 'id, baby_id AS babyId, date, height_cm AS heightCm, weight_kg AS weightKg, head_cm AS headCm, note';
+
+export const growthRecords = {
+  list: (babyId: number) => db.prepare(`SELECT ${growthCols} FROM growth_records WHERE baby_id = ? ORDER BY date, id`).all(babyId) as GrowthRecord[],
+  get: (id: number) => db.prepare(`SELECT ${growthCols} FROM growth_records WHERE id = ?`).get(id) as GrowthRecord | undefined,
+  create: (r: Omit<GrowthRecord, 'id'>) =>
+    db
+      .prepare(`INSERT INTO growth_records (baby_id, date, height_cm, weight_kg, head_cm, note) VALUES (?, ?, ?, ?, ?, ?) RETURNING ${growthCols}`)
+      .get(r.babyId, r.date, r.heightCm, r.weightKg, r.headCm, r.note) as GrowthRecord,
+  update: (id: number, r: Omit<GrowthRecord, 'id' | 'babyId'>) =>
+    db
+      .prepare(`UPDATE growth_records SET date = ?, height_cm = ?, weight_kg = ?, head_cm = ?, note = ? WHERE id = ? RETURNING ${growthCols}`)
+      .get(r.date, r.heightCm, r.weightKg, r.headCm, r.note, id) as GrowthRecord | undefined,
+  remove: (id: number) => db.prepare('DELETE FROM growth_records WHERE id = ?').run(id).changes > 0,
+};
+
+// ---------------------------------------------------------------- 日记
+
+export type JournalEntry = { id: number; babyId: number; date: string; text: string; authorId: number | null; authorName: string | null; createdAt: string; updatedAt: string };
+const journalCols = `j.id, j.baby_id AS babyId, j.date, j.text, j.author_id AS authorId, u.display_name AS authorName,
+  j.created_at AS createdAt, j.updated_at AS updatedAt`;
+const journalFrom = 'journal_entries j LEFT JOIN users u ON u.id = j.author_id';
+
+export const journal = {
+  list: (babyId: number) => db.prepare(`SELECT ${journalCols} FROM ${journalFrom} WHERE j.baby_id = ? ORDER BY j.date DESC, j.id DESC`).all(babyId) as JournalEntry[],
+  get: (id: number) => db.prepare(`SELECT ${journalCols} FROM ${journalFrom} WHERE j.id = ?`).get(id) as JournalEntry | undefined,
+  create: (e: { babyId: number; date: string; text: string; authorId: number }) => {
+    const { id } = db.prepare('INSERT INTO journal_entries (baby_id, date, text, author_id) VALUES (?, ?, ?, ?) RETURNING id').get(e.babyId, e.date, e.text, e.authorId) as { id: number };
+    return journal.get(id)!;
+  },
+  update: (id: number, e: { date: string; text: string }) => {
+    db.prepare("UPDATE journal_entries SET date = ?, text = ?, updated_at = datetime('now') WHERE id = ?").run(e.date, e.text, id);
+    return journal.get(id);
+  },
+  remove: (id: number) => db.prepare('DELETE FROM journal_entries WHERE id = ?').run(id).changes > 0,
+};
+
+// ---------------------------------------------------------------- 在相册里隐藏的照片
+
+export const hiddenAssets = {
+  ids: () => new Set((db.prepare('SELECT asset_id AS id FROM hidden_assets').all() as { id: string }[]).map((r) => r.id)),
+  list: () => db.prepare('SELECT asset_id AS assetId, reason, created_at AS createdAt FROM hidden_assets ORDER BY created_at DESC').all() as { assetId: string; reason: string; createdAt: string }[],
+  add: (assetIds: string[], reason: string) =>
+    transaction(() => {
+      const stmt = db.prepare('INSERT INTO hidden_assets (asset_id, reason) VALUES (?, ?) ON CONFLICT(asset_id) DO NOTHING');
+      for (const id of assetIds) stmt.run(id, reason);
+    }),
+  remove: (assetId: string) => db.prepare('DELETE FROM hidden_assets WHERE asset_id = ?').run(assetId).changes > 0,
+};
+
+// ---------------------------------------------------------------- 推送订阅
+
+export type PushSubscriptionRow = { endpoint: string; userId: number; p256dh: string; auth: string };
+
+export const pushSubscriptions = {
+  all: () => db.prepare('SELECT endpoint, user_id AS userId, p256dh, auth FROM push_subscriptions').all() as PushSubscriptionRow[],
+  forUser: (userId: number) => db.prepare('SELECT endpoint, user_id AS userId, p256dh, auth FROM push_subscriptions WHERE user_id = ?').all(userId) as PushSubscriptionRow[],
+  save: (s: PushSubscriptionRow) =>
+    db
+      .prepare('INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth) VALUES (?, ?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth')
+      .run(s.endpoint, s.userId, s.p256dh, s.auth),
+  remove: (endpoint: string) => db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint).changes > 0,
 };

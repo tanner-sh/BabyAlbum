@@ -3,7 +3,9 @@ import { Baby as BabyIcon, CalendarHeart, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useNavigate, useOutletContext } from 'react-router';
-import { get, request, thumbUrl, useAlbum, useBabies, useOnThisDay, type AdminPerson, type Baby, type Me } from '../api';
+import { get, request, thumbUrl, useAlbum, useBabies, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
+import { ClaimBanner, SexPicker } from '../components/ClaimBaby';
+import { ReviewBanner } from '../components/ReviewTab';
 import { Avatar, Empty, ErrorBox, Modal, Spinner } from '../components/ui';
 import { formatDate } from '../format';
 
@@ -18,6 +20,7 @@ export function HomePage() {
 
   return (
     <>
+      {isAdmin && <ClaimBanner />}
       {babies.data.length === 0 ? (
         <Empty icon={<BabyIcon size={48} />} title="欢迎使用宝宝相册">
           {isAdmin ? (
@@ -52,6 +55,9 @@ export function HomePage() {
               </button>
             )}
           </div>
+          {babies.data.map((b) => (
+            <ReviewBanner key={`review-${b.id}`} baby={b} />
+          ))}
           {babies.data.map((b) => (
             <TodayMemories key={b.id} baby={b} />
           ))}
@@ -97,6 +103,7 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
   const [person, setPerson] = useState<AdminPerson | null>(null);
   const [name, setName] = useState('');
   const [birthday, setBirthday] = useState('');
+  const [sex, setSex] = useState<Sex | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function choose(p: AdminPerson) {
@@ -110,7 +117,7 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
     try {
       // 同时给人物命名、设生日（人物列表里也能看到）
       await request('PUT', `/api/admin/people/${person!.id}`, { name, birthDate: birthday });
-      const baby = await request<Baby>('POST', '/api/babies', { name, immichPersonId: person!.id, birthday });
+      const baby = await request<Baby>('POST', '/api/babies', { name, immichPersonId: person!.id, birthday, sex });
       await queryClient.invalidateQueries();
       navigate(`/baby/${baby.id}`);
     } catch (e) {
@@ -169,6 +176,10 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
               <span>3. 生日</span>
               <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} />
             </label>
+            <div className="field">
+              <span>4. 性别（用于和 WHO 生长标准对比，可以不填）</span>
+              <SexPicker value={sex} onChange={setSex} />
+            </div>
           </>
         )}
         {error && <div className="error-box">{error}</div>}

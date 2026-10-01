@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { Bell, BellOff, LogOut, Share, Smartphone, SquarePlus } from 'lucide-react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
 import { get, request, ROLE_HINTS, ROLE_LABELS, useSetupStatus, type Role, type SetupStatus } from '../api';
 import { Spinner } from '../components/ui';
+import { canPromptInstall, currentSubscription, disablePush, enablePush, isIos, isStandalone, onInstallAvailable, promptInstall, pushSupport } from '../pwa';
 
 // 首次设置、登录、邀请注册、修改密码
 
@@ -181,6 +183,7 @@ export function InvitePage() {
 
 /** 我的账号：修改密码 */
 export function AccountPage() {
+  const queryClient = useQueryClient();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [done, setDone] = useState(false);
@@ -190,8 +193,17 @@ export function AccountPage() {
     setCurrent('');
     setNext('');
   });
+
+  async function logout() {
+    await request('POST', '/api/auth/logout');
+    queryClient.clear();
+    window.location.href = '/login';
+  }
+
   return (
     <div className="narrow">
+      <InstallSection />
+      <NotificationSection />
       <h1>修改密码</h1>
       <form className="form card" onSubmit={submit}>
         <Field label="当前密码">
@@ -206,6 +218,100 @@ export function AccountPage() {
           保存
         </button>
       </form>
+      <button className="btn btn-block logout-btn" onClick={logout}>
+        <LogOut size={16} />
+        退出登录
+      </button>
     </div>
+  );
+}
+
+/** 添加到主屏幕：像 App 一样全屏打开 */
+function InstallSection() {
+  const [, rerender] = useState(0);
+  useEffect(() => onInstallAvailable(() => rerender((n) => n + 1)), []);
+  if (isStandalone()) return null;
+  return (
+    <section className="card account-section">
+      <h2>
+        <Smartphone size={18} /> 添加到手机主屏幕
+      </h2>
+      <p className="muted">添加后像 App 一样从桌面打开、全屏浏览，还能收到宝宝生日和满月的提醒。</p>
+      {canPromptInstall() ? (
+        <button className="btn btn-primary" onClick={() => promptInstall().then(() => rerender((n) => n + 1))}>
+          <SquarePlus size={16} />
+          添加到主屏幕
+        </button>
+      ) : isIos() ? (
+        <ol className="install-steps">
+          <li>
+            用 Safari 打开这个网址，点底部的 <Share size={16} /> 分享按钮
+          </li>
+          <li>
+            往下找到 <SquarePlus size={16} />“添加到主屏幕”
+          </li>
+          <li>点右上角“添加”</li>
+        </ol>
+      ) : (
+        <p className="muted">在手机浏览器的菜单里选“添加到主屏幕”或“安装应用”。</p>
+      )}
+    </section>
+  );
+}
+
+/** 生日、满月提醒（推送通知） */
+function NotificationSection() {
+  const support = pushSupport();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    currentSubscription().then((s) => setEnabled(!!s)).catch(() => setEnabled(false));
+  }, []);
+
+  async function run(fn: () => Promise<void>, done: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await fn();
+      setMessage(done);
+      setEnabled(!!(await currentSubscription()));
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : '操作失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card account-section">
+      <h2>
+        <Bell size={18} /> 生日、满月提醒
+      </h2>
+      <p className="muted">宝宝生日、满月（3 岁以内）那天早上 9 点，推送一条通知，点开就是这一年、这个月的精选回顾。</p>
+      {support === 'insecure' ? (
+        <p className="muted">需要通过 HTTPS 访问宝宝相册才能接收通知。</p>
+      ) : support === 'ios-needs-install' ? (
+        <p className="muted">iPhone 上要先把宝宝相册添加到主屏幕（见上面），再从主屏幕打开，才能打开通知。</p>
+      ) : support === 'unsupported' ? (
+        <p className="muted">这个浏览器不支持通知。</p>
+      ) : enabled ? (
+        <div className="actions-row">
+          <button className="btn" disabled={busy} onClick={() => run(() => request('POST', '/api/push/test'), '已发送一条测试通知')}>
+            发一条测试通知
+          </button>
+          <button className="btn" disabled={busy} onClick={() => run(disablePush, '已关闭这台设备的提醒')}>
+            <BellOff size={16} />
+            关闭
+          </button>
+        </div>
+      ) : (
+        <button className="btn btn-primary" disabled={busy || enabled === null} onClick={() => run(enablePush, '已打开，这台设备会收到提醒')}>
+          <Bell size={16} />
+          在这台设备上打开提醒
+        </button>
+      )}
+      {message && <p className="muted">{message}</p>}
+    </section>
   );
 }

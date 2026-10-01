@@ -10,6 +10,8 @@ import { config } from './config.ts';
 import { connectImmichInBackground, immichConnected } from './immich-link.ts';
 import { startNasReconcile } from './nas.ts';
 import { startStorageUsage } from './storage-usage.ts';
+import { startImportProgress } from './import-progress.ts';
+import { pushRoutes, startPushScheduler } from './push.ts';
 import { immich, ImmichNotConnectedError } from './immich.ts';
 import { adminRoutes } from './routes/admin.ts';
 import { manageRoutes } from './routes/manage.ts';
@@ -46,6 +48,7 @@ app.get('/api/health', async () => ({ ok: true, immich: immichConnected() ? 'con
 await app.register(manageRoutes);
 await app.register(adminRoutes);
 await app.register(shareRoutes);
+await app.register(pushRoutes);
 
 // 前端（React 构建产物）。其余路径都返回 index.html，由前端路由处理
 if (existsSync(join(config.WEB_DIR, 'index.html'))) {
@@ -64,3 +67,5 @@ if (config.BACKUP_DIR) scheduleBackups(config.BACKUP_DIR, app.log);
 void connectImmichInBackground(app.log);
 startNasReconcile(app.log);
 startStorageUsage(app.log);
+startImportProgress(app.log);
+startPushScheduler(app.log);

@@ -10,13 +10,19 @@ import { PeoplePage } from './pages/admin/PeoplePage';
 import { SettingsPage } from './pages/admin/SettingsPage';
 import { AccountPage, InvitePage, LoginPage, SetupPage } from './pages/AuthPages';
 import { BabyPage } from './pages/BabyPage';
+import { BookPage } from './pages/BookPage';
+import { SearchPage } from './pages/SearchPage';
+import { DuplicatesPage } from './pages/admin/DuplicatesPage';
 import { ComparePage } from './pages/ComparePage';
 import { HomePage } from './pages/HomePage';
 import { PhotosPage } from './pages/PhotosPage';
 import { Layout } from './pages/Layout';
 import { SharePage } from './pages/SharePage';
 import { SharesPage } from './pages/SharesPage';
+import { registerServiceWorker } from './pwa';
 import './styles.css';
+
+registerServiceWorker();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,6 +47,8 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<Layout />}>
             <Route index element={<HomePage />} />
             <Route path="baby/:id" element={<BabyPage />} />
+            <Route path="baby/:id/book" element={<BookPage />} />
+            <Route path="search" element={<SearchPage />} />
             <Route path="photos" element={<PhotosPage />} />
             <Route path="compare" element={<ComparePage />} />
             <Route path="shares" element={<SharesPage />} />
@@ -49,6 +57,7 @@ createRoot(document.getElementById('root')!).render(
               <Route index element={<Navigate to="library" replace />} />
               <Route path="library" element={<LibraryPage />} />
               <Route path="people" element={<PeoplePage />} />
+              <Route path="tidy" element={<DuplicatesPage />} />
               <Route path="members" element={<MembersPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

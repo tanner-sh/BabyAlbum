@@ -2,8 +2,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router';
-import { canEdit, request, useBabies, type Baby, type Me } from '../api';
+import { canEdit, request, useBabies, type Baby, type Me, type Sex } from '../api';
 import { BabyView } from '../components/BabyView';
+import { MergeHint, SexPicker } from '../components/ClaimBaby';
 import { DateIssuesBanner } from '../components/DateFix';
 import { Avatar, Empty, ErrorBox, Modal, Spinner } from '../components/ui';
 import { formatDate } from '../format';
@@ -35,6 +36,7 @@ export function BabyPage() {
         )}
       </header>
       {canEdit(me) && <DateIssuesBanner baby={baby} />}
+      {me.role === 'admin' && <MergeHint baby={baby} />}
       <BabyView baby={baby} />
       {editing && <EditBabyModal baby={baby} onClose={() => setEditing(false)} />}
     </>
@@ -46,11 +48,12 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
   const navigate = useNavigate();
   const [name, setName] = useState(baby.name);
   const [birthday, setBirthday] = useState(baby.birthday);
+  const [sex, setSex] = useState<Sex | null>(baby.sex);
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
     try {
-      await request('PATCH', `/api/babies/${baby.id}`, { name, birthday });
+      await request('PATCH', `/api/babies/${baby.id}`, { name, birthday, sex });
       // 生日变了，所有按年龄计算的数据都要重新加载
       await queryClient.invalidateQueries();
       onClose();
@@ -95,6 +98,10 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
           <span>生日</span>
           <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} />
         </label>
+        <div className="field">
+          <span>性别（用于和 WHO 生长标准对比）</span>
+          <SexPicker value={sex} onChange={setSex} />
+        </div>
         {error && <div className="error-box">{error}</div>}
       </div>
     </Modal>
