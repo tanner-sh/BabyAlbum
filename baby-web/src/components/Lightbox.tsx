@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, ChevronLeft, ChevronRight, Download, Flag, Heart, Info, X } from 'lucide-react';
+import { BookImage, CalendarClock, ChevronLeft, ChevronRight, Download, Flag, Heart, Info, MessageCircle, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { get, liveUrl, originalUrl, request, thumbUrl, useAlbum, useAssetInfo, videoUrl, type AlbumItem } from '../api';
 import { formatBytes, formatDateTime } from '../format';
+import { AlbumPicker } from './AlbumPicker';
 import { EditDateModal } from './DateFix';
+import { SocialPanel, useSocial } from './Social';
 import { LiveBadge } from './PhotoGrid';
 
 type Props = {
@@ -13,14 +15,19 @@ type Props = {
   onClose: () => void;
   /** 只有登录用户才有：把这张照片记为里程碑 */
   onMilestone?: (item: AlbumItem) => void;
+  /** 打开时直接显示点赞留言（从互动提醒点进来） */
+  initialSocial?: boolean;
 };
 
-export function Lightbox({ items, index, onIndexChange, onClose, onMilestone }: Props) {
+export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, initialSocial }: Props) {
   const album = useAlbum();
   const queryClient = useQueryClient();
   const item = items[index];
   const [showInfo, setShowInfo] = useState(false);
+  const [showSocial, setShowSocial] = useState(!!initialSocial);
+  const [addingToAlbum, setAddingToAlbum] = useState(false);
   const [editingDate, setEditingDate] = useState(false);
+  const social = useSocial(items[index]?.id ?? '');
   // 收藏状态在本地立即更新，不等列表重新加载
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const info = useAssetInfo(showInfo ? item?.id : null);
@@ -32,7 +39,8 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone }: 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (editingDate) return;
+      // 弹窗、输入框里按键时不切换照片
+      if (editingDate || addingToAlbum || (e.target as HTMLElement).closest('input, textarea')) return;
       if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowLeft') go(-1);
       if (e.key === 'ArrowRight') go(1);
@@ -93,12 +101,40 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone }: 
               <CalendarClock size={20} />
             </button>
           )}
+          {!album.readOnly && album.base === '/api' && (
+            <button className="icon-btn light" onClick={() => setAddingToAlbum(true)} aria-label="加入相册" title="加入相册">
+              <BookImage size={20} />
+            </button>
+          )}
+          {album.interact && (
+            <button
+              className={`icon-btn light badge-btn ${showSocial ? 'active' : ''}`}
+              onClick={() => {
+                setShowSocial((v) => !v);
+                setShowInfo(false);
+              }}
+              aria-label="点赞留言"
+              title="点赞留言"
+            >
+              <MessageCircle size={20} />
+              {social.data && social.data.likes.length + social.data.comments.length > 0 && (
+                <span className="count">{social.data.likes.length + social.data.comments.length}</span>
+              )}
+            </button>
+          )}
           {album.allowDownload && (
             <a className="icon-btn light" href={originalUrl(album, item.id)} aria-label="下载原图" title="下载原图">
               <Download size={20} />
             </a>
           )}
-          <button className={`icon-btn light ${showInfo ? 'active' : ''}`} onClick={() => setShowInfo((v) => !v)} aria-label="详细信息">
+          <button
+            className={`icon-btn light ${showInfo ? 'active' : ''}`}
+            onClick={() => {
+              setShowInfo((v) => !v);
+              setShowSocial(false);
+            }}
+            aria-label="详细信息"
+          >
             <Info size={20} />
           </button>
         </div>
@@ -157,7 +193,14 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone }: 
         </aside>
       )}
 
+      {showSocial && (
+        <aside className="lightbox-info lightbox-social">
+          <SocialPanel key={item.id} assetId={item.id} />
+        </aside>
+      )}
+
       {editingDate && <EditDateModal assetId={item.id} onClose={() => setEditingDate(false)} />}
+      {addingToAlbum && <AlbumPicker assetIds={[item.id]} onClose={() => setAddingToAlbum(false)} />}
 
       <div className="lightbox-counter">
         {index + 1} / {items.length}

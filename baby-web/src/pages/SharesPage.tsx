@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Download, ExternalLink, Link2, Lock, Pencil, Plus, Trash2, Type } from 'lucide-react';
+import { BookImage, Check, Copy, Download, ExternalLink, Link2, Lock, MessageCircle, Pencil, Plus, Trash2, Type } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useOutletContext } from 'react-router';
-import { canEdit, get, request, useBabies, type Me, type Share } from '../api';
-import { Empty, ErrorBox, Modal, Spinner, Toggle } from '../components/ui';
+import { canEdit, get, request, useAlbums, useBabies, type Me, type Share } from '../api';
+import { CopyButton, Empty, ErrorBox, Modal, Spinner, Toggle } from '../components/ui';
 import { formatDate } from '../format';
 
 const EXPIRY = [
@@ -24,6 +24,7 @@ export function SharesPage() {
 
 function SharesList() {
   const babies = useBabies();
+  const albums = useAlbums();
   const shares = useQuery({ queryKey: ['shares'], queryFn: () => get<Share[]>('/api/shares') });
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Share | 'new' | null>(null);
@@ -76,7 +77,7 @@ function SharesList() {
                 <div>
                   <strong>{s.label}</strong>
                   <span className="muted">
-                    {names(s.babyIds) || '（宝宝已移除）'} · {expired ? '已过期' : s.expiresAt ? `${formatDate(s.expiresAt.slice(0, 10))} 到期` : '永久有效'}
+                    {s.albumId !== null ? `相册：${albums.data?.find((a) => a.id === s.albumId)?.title ?? '…'}` : names(s.babyIds) || '（宝宝已移除）'} · {expired ? '已过期' : s.expiresAt ? `${formatDate(s.expiresAt.slice(0, 10))} 到期` : '永久有效'}
                   </span>
                   <span className="share-flags">
                     {s.hasPassword && (
@@ -95,6 +96,18 @@ function SharesList() {
                       <span className="chip">
                         <Type size={12} />
                         长辈模式
+                      </span>
+                    )}
+                    {s.allowComments && (
+                      <span className="chip">
+                        <MessageCircle size={12} />
+                        可点赞留言
+                      </span>
+                    )}
+                    {s.albumId !== null && (
+                      <span className="chip">
+                        <BookImage size={12} />
+                        相册
                       </span>
                     )}
                   </span>
@@ -124,10 +137,14 @@ function SharesList() {
   );
 }
 
-function ShareEditor({ share, onClose }: { share: Share | null; onClose: () => void }) {
+/** 新建、修改分享。albumId：分享一个相册（不选宝宝） */
+export function ShareEditor({ share, albumId: albumIdProp, defaultLabel, onClose }: { share: Share | null; albumId?: number; defaultLabel?: string; onClose: () => void }) {
   const babies = useBabies();
   const queryClient = useQueryClient();
-  const [label, setLabel] = useState(share?.label ?? '爷爷奶奶');
+  const albumId = share ? share.albumId : (albumIdProp ?? null);
+  const [label, setLabel] = useState(share?.label ?? (albumId !== null ? '家里人' : '爷爷奶奶'));
+  const [allowComments, setAllowComments] = useState(share?.allowComments ?? true);
+  const [created, setCreated] = useState<Share | null>(null);
   const [selected, setSelected] = useState<number[]>(share?.babyIds ?? babies.data?.map((b) => b.id) ?? []);
   // 修改时默认保持原来的有效期（-1 表示不改）
   const [days, setDays] = useState(share ? -1 : 0);
@@ -152,9 +169,16 @@ function ShareEditor({ share, onClose }: { share: Share | null; onClose: () => v
         password: !usePassword ? null : password || undefined,
         allowDownload,
         elderMode,
+        albumId,
+        allowComments,
       };
       if (share) await request('PUT', `/api/shares/${share.id}`, body);
-      else await request('POST', '/api/shares', body);
+      else {
+        const s = await request<Share>('POST', '/api/shares', body);
+        await queryClient.invalidateQueries({ queryKey: ['shares'] });
+        // 从相册页分享时直接给出链接
+        if (albumId !== null) return setCreated(s);
+      }
       await queryClient.invalidateQueries({ queryKey: ['shares'] });
       onClose();
     } catch (e) {
@@ -172,17 +196,31 @@ function ShareEditor({ share, onClose }: { share: Share | null; onClose: () => v
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={!label.trim() || !selected.length || passwordMissing} onClick={save}>
-            {share ? '保存' : '创建'}
-          </button>
+          {created ? (
+            <button className="btn btn-primary" onClick={onClose}>
+              完成
+            </button>
+          ) : (
+            <button className="btn btn-primary" disabled={!label.trim() || (albumId === null && !selected.length) || passwordMissing} onClick={save}>
+              {share ? '保存' : '创建'}
+            </button>
+          )}
         </>
       }
     >
+      {created ? (
+        <div className="form">
+          <p>分享链接已经生成，发给家人就能看到“{defaultLabel}”这个相册：</p>
+          <input readOnly value={shareUrl(created)} onFocus={(e) => e.target.select()} />
+          <CopyButton text={shareUrl(created)} />
+        </div>
+      ) : (
       <div className="form">
         <label className="field">
           <span>给谁看</span>
           <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={50} placeholder="例如：爷爷奶奶" />
         </label>
+        {albumId === null && (
         <div className="field">
           <span>分享哪些宝宝</span>
           <div className="chips">
@@ -198,6 +236,7 @@ function ShareEditor({ share, onClose }: { share: Share | null; onClose: () => v
             ))}
           </div>
         </div>
+        )}
         <div className="field">
           <span>有效期{share ? '（从今天重新算）' : ''}</span>
           <div className="chips">
@@ -222,8 +261,10 @@ function ShareEditor({ share, onClose }: { share: Share | null; onClose: () => v
         )}
         <Toggle checked={allowDownload} onChange={setAllowDownload} label="允许下载原图" hint="关闭时只能在线看，看不到下载按钮" />
         <Toggle checked={elderMode} onChange={setElderMode} label="长辈模式" hint="字更大、照片更大，适合给爷爷奶奶、外公外婆看" />
+        <Toggle checked={allowComments} onChange={setAllowComments} label="允许点赞、留言" hint="对方可以给照片点赞、留言，家里人会收到提醒" />
         {error && <div className="error-box">{error}</div>}
       </div>
+      )}
     </Modal>
   );
 }

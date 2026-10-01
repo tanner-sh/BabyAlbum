@@ -18,7 +18,8 @@ docker compose up -d --build database redis nas-mounter immich-server baby-serve
 # 测试照片通过 tar 流复制进数据卷（不挂载宿主机目录，原因见 docker-compose.dev.yml）
 if [ "$(docker run --rm -v babyalbum_dev-photos:/p alpine sh -c 'ls -A /p | wc -l')" = "0" ]; then
   echo "==> 复制测试照片到数据卷"
-  tar -C dev-data/sample-photos -cf - . | docker run --rm -i -v babyalbum_dev-photos:/p alpine tar -C /p -xf -
+  # COPYFILE_DISABLE：macOS 的 tar 默认会带上 ._ 开头的元数据文件，不能让它们混进测试照片
+  COPYFILE_DISABLE=1 tar -C dev-data/sample-photos -cf - . | docker run --rm -i -v babyalbum_dev-photos:/p alpine tar -C /p -xf -
 fi
 
 echo "==> 初始化测试数据"

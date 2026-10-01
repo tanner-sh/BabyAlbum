@@ -2820,3 +2820,491 @@ details summary {
   flex: 1;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* ------------------------------------------------------------------ 认识家里人 */
+.companions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.chip.companion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 3px;
+}
+
+.chip.companion .muted {
+  font-size: 0.75rem;
+}
+
+.family-intro {
+  margin-bottom: 28px;
+}
+
+.family-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.family-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.family-card.done {
+  opacity: 0.7;
+}
+
+.family-card .chips {
+  justify-content: center;
+}
+
+.family-custom {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.family-custom input {
+  flex: 1;
+  min-width: 0;
+}
+
+.family-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.family-done {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ 手动相册 */
+.album-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.album-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.album-card img,
+.album-card-empty {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.album-card-empty,
+.album-pick-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.album-card-text {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+}
+
+.album-new {
+  margin-bottom: 12px;
+}
+
+.album-new input {
+  flex: 1;
+}
+
+.album-pick {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.album-pick button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+}
+
+.album-pick button:hover {
+  background: var(--surface-2);
+}
+
+.album-pick img,
+.album-pick-empty {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.album-pick span {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 多选 */
+.timeline-tools {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timeline-tools .companions {
+  flex: 1;
+}
+
+.select-btn {
+  flex-shrink: 0;
+  margin: 4px 0 12px auto;
+}
+
+.selection-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.thumb-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 50%));
+}
+
+.thumb.selected {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.thumb.selected .thumb-check {
+  color: var(--accent);
+}
+
+.thumb.selecting:hover img {
+  transform: none;
+}
+
+.selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(560px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 20%);
+}
+
+.selection-bar > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .app:not(.share-app) .selection-bar {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  .app:not(.share-app) .topnav .wide-only-link {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ 点赞、留言 */
+.badge-btn {
+  position: relative;
+}
+
+.badge-btn .count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.lightbox-social {
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+}
+
+.social {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.social-likes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid rgb(255 255 255 / 30%);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+}
+
+.like-btn.liked {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.comments li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+}
+
+.comments strong {
+  font-size: 0.85rem;
+}
+
+.comments li > span {
+  grid-column: 1;
+  word-break: break-word;
+}
+
+.comments time {
+  grid-column: 1;
+  font-size: 0.75rem;
+}
+
+.comments .icon-btn {
+  grid-row: 1 / span 3;
+  grid-column: 2;
+  align-self: center;
+  color: inherit;
+}
+
+.comment-form {
+  display: flex;
+  gap: 6px;
+}
+
+.comment-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.social-name span {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.lightbox-info .link-btn {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.recent-social {
+  margin: 16px 0;
+}
+
+.recent-social h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+
+.recent-social ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+
+.recent-social a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.recent-social img {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.recent-social a > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.recent-social a > span > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-links {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.quick-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+/* ------------------------------------------------------------------ 系统状态 */
+.health-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.health-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border-left: 4px solid transparent;
+}
+
+.health-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.health-row.ok .health-icon {
+  color: #16a34a;
+}
+
+.health-row.warn {
+  border-left-color: #d97706;
+}
+
+.health-row.warn .health-icon {
+  color: #d97706;
+}
+
+.health-row.error {
+  border-left-color: var(--danger);
+}
+
+.health-row.error .health-icon {
+  color: var(--danger);
+}
+
+.health-row.skip {
+  opacity: 0.6;
+}
+
+.notice-error {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.notice-error svg {
+  color: var(--danger);
+}
+
+.notify-prefs {
+  margin-top: 12px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}

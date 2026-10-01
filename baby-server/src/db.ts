@@ -127,7 +127,43 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- 家人分享链接：免登录、只读，只能看到指定宝宝的照片
+  -- 手动相册：自己挑照片建的相册（满月酒、第一次旅行），可以单独分享
+  CREATE TABLE IF NOT EXISTS albums (
+    id             INTEGER PRIMARY KEY,
+    title          TEXT NOT NULL,
+    description    TEXT NOT NULL DEFAULT '',
+    cover_asset_id TEXT,
+    created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS album_assets (
+    album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (album_id, asset_id)
+  );
+  CREATE INDEX IF NOT EXISTS album_assets_asset ON album_assets(asset_id);
+
+  -- 家人互动：点赞、留言。actor 是谁：u:<用户 ID>（登录的家人），s:<分享 ID>:<访客 ID>（分享链接的访客）
+  CREATE TABLE IF NOT EXISTS asset_likes (
+    asset_id   TEXT NOT NULL,
+    actor      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (asset_id, actor)
+  );
+  CREATE TABLE IF NOT EXISTS asset_comments (
+    id         INTEGER PRIMARY KEY,
+    asset_id   TEXT NOT NULL,
+    actor      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS asset_comments_asset ON asset_comments(asset_id, created_at);
+
+  -- 家人分享链接：免登录、只读，只能看到指定宝宝的照片（或者一个相册）
   CREATE TABLE IF NOT EXISTS shares (
     id         INTEGER PRIMARY KEY,
     token      TEXT NOT NULL UNIQUE,
@@ -155,6 +191,11 @@ if (!(db.prepare('PRAGMA table_info(shares)').all() as { name: string }[]).some(
   db.exec('ALTER TABLE shares ADD COLUMN allow_download INTEGER NOT NULL DEFAULT 0; UPDATE shares SET allow_download = 1');
 }
 addColumn('shares', 'elder_mode', 'INTEGER NOT NULL DEFAULT 0');
+// 分享一个相册（这时 baby_ids 是空数组）；是否允许访客点赞、留言
+addColumn('shares', 'album_id', 'INTEGER REFERENCES albums(id) ON DELETE CASCADE');
+addColumn('shares', 'allow_comments', 'INTEGER NOT NULL DEFAULT 1');
+// 每个人想收到哪些推送（JSON），没设置过时全部打开
+addColumn('users', 'notify_prefs', 'TEXT');
 
 export type Sex = 'boy' | 'girl';
 export type Baby = { id: number; name: string; birthday: string; immichPersonId: string; sex: Sex | null };
@@ -170,6 +211,9 @@ export type Share = {
   passwordHash: string | null;
   allowDownload: boolean;
   elderMode: boolean;
+  /** 分享的是一个相册（不是宝宝） */
+  albumId: number | null;
+  allowComments: boolean;
 };
 
 const babyCols = 'id, name, birthday, immich_person_id AS immichPersonId, sex';
@@ -207,12 +251,17 @@ export const milestones = {
   remove: (id: number) => db.prepare('DELETE FROM milestones WHERE id = ?').run(id).changes > 0,
 };
 
-type ShareRow = Omit<Share, 'babyIds' | 'allowDownload' | 'elderMode'> & { babyIds: string; allowDownload: number; elderMode: number };
+type ShareRow = Omit<Share, 'babyIds' | 'allowDownload' | 'elderMode' | 'allowComments'> & {
+  babyIds: string;
+  allowDownload: number;
+  elderMode: number;
+  allowComments: number;
+};
 const shareCols = `id, token, label, baby_ids AS babyIds, expires_at AS expiresAt, created_at AS createdAt,
-  password_hash AS passwordHash, allow_download AS allowDownload, elder_mode AS elderMode`;
+  password_hash AS passwordHash, allow_download AS allowDownload, elder_mode AS elderMode, album_id AS albumId, allow_comments AS allowComments`;
 const toShare = (row: ShareRow | undefined): Share | undefined =>
-  row && { ...row, babyIds: JSON.parse(row.babyIds), allowDownload: !!row.allowDownload, elderMode: !!row.elderMode };
-export type ShareOptions = Pick<Share, 'label' | 'babyIds' | 'expiresAt' | 'passwordHash' | 'allowDownload' | 'elderMode'>;
+  row && { ...row, babyIds: JSON.parse(row.babyIds), allowDownload: !!row.allowDownload, elderMode: !!row.elderMode, allowComments: !!row.allowComments };
+export type ShareOptions = Pick<Share, 'label' | 'babyIds' | 'expiresAt' | 'passwordHash' | 'allowDownload' | 'elderMode' | 'albumId' | 'allowComments'>;
 
 export const shares = {
   list: () => (db.prepare(`SELECT ${shareCols} FROM shares ORDER BY id DESC`).all() as ShareRow[]).map((r) => toShare(r)!),
@@ -222,17 +271,39 @@ export const shares = {
     toShare(
       db
         .prepare(
-          `INSERT INTO shares (token, label, baby_ids, expires_at, password_hash, allow_download, elder_mode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${shareCols}`,
+          `INSERT INTO shares (token, label, baby_ids, expires_at, password_hash, allow_download, elder_mode, album_id, allow_comments)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${shareCols}`,
         )
-        .get(s.token, s.label, JSON.stringify(s.babyIds), s.expiresAt, s.passwordHash, s.allowDownload ? 1 : 0, s.elderMode ? 1 : 0) as ShareRow,
+        .get(
+          s.token,
+          s.label,
+          JSON.stringify(s.babyIds),
+          s.expiresAt,
+          s.passwordHash,
+          s.allowDownload ? 1 : 0,
+          s.elderMode ? 1 : 0,
+          s.albumId,
+          s.allowComments ? 1 : 0,
+        ) as ShareRow,
     )!,
   update: (id: number, s: ShareOptions) =>
     toShare(
       db
         .prepare(
-          `UPDATE shares SET label = ?, baby_ids = ?, expires_at = ?, password_hash = ?, allow_download = ?, elder_mode = ? WHERE id = ? RETURNING ${shareCols}`,
+          `UPDATE shares SET label = ?, baby_ids = ?, expires_at = ?, password_hash = ?, allow_download = ?, elder_mode = ?, album_id = ?, allow_comments = ?
+           WHERE id = ? RETURNING ${shareCols}`,
         )
-        .get(s.label, JSON.stringify(s.babyIds), s.expiresAt, s.passwordHash, s.allowDownload ? 1 : 0, s.elderMode ? 1 : 0, id) as ShareRow | undefined,
+        .get(
+          s.label,
+          JSON.stringify(s.babyIds),
+          s.expiresAt,
+          s.passwordHash,
+          s.allowDownload ? 1 : 0,
+          s.elderMode ? 1 : 0,
+          s.albumId,
+          s.allowComments ? 1 : 0,
+          id,
+        ) as ShareRow | undefined,
     ),
   remove: (id: number) => db.prepare('DELETE FROM shares WHERE id = ?').run(id).changes > 0,
 };
@@ -457,4 +528,104 @@ export const pushSubscriptions = {
       .prepare('INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth) VALUES (?, ?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth')
       .run(s.endpoint, s.userId, s.p256dh, s.auth),
   remove: (endpoint: string) => db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint).changes > 0,
+};
+
+// ---------------------------------------------------------------- 手动相册
+
+export type Album = { id: number; title: string; description: string; coverAssetId: string | null; createdBy: number | null; createdAt: string; updatedAt: string; count: number };
+const albumCols = `a.id, a.title, a.description, a.cover_asset_id AS coverAssetId, a.created_by AS createdBy, a.created_at AS createdAt, a.updated_at AS updatedAt,
+  (SELECT count(*) FROM album_assets x WHERE x.album_id = a.id) AS count`;
+
+export const albums = {
+  list: () => db.prepare(`SELECT ${albumCols} FROM albums a ORDER BY a.updated_at DESC, a.id DESC`).all() as Album[],
+  get: (id: number) => db.prepare(`SELECT ${albumCols} FROM albums a WHERE a.id = ?`).get(id) as Album | undefined,
+  create: (a: { title: string; description: string; createdBy: number }) => {
+    const { id } = db.prepare('INSERT INTO albums (title, description, created_by) VALUES (?, ?, ?) RETURNING id').get(a.title, a.description, a.createdBy) as { id: number };
+    return albums.get(id)!;
+  },
+  update: (id: number, a: { title: string; description: string; coverAssetId: string | null }) => {
+    db.prepare("UPDATE albums SET title = ?, description = ?, cover_asset_id = ?, updated_at = datetime('now') WHERE id = ?").run(a.title, a.description, a.coverAssetId, id);
+    return albums.get(id);
+  },
+  remove: (id: number) => db.prepare('DELETE FROM albums WHERE id = ?').run(id).changes > 0,
+  assetIds: (id: number) => (db.prepare('SELECT asset_id AS id FROM album_assets WHERE album_id = ? ORDER BY added_at').all(id) as { id: string }[]).map((r) => r.id),
+  has: (id: number, assetId: string) => !!db.prepare('SELECT 1 FROM album_assets WHERE album_id = ? AND asset_id = ?').get(id, assetId),
+  add: (id: number, assetIds: string[]) =>
+    transaction(() => {
+      const stmt = db.prepare('INSERT INTO album_assets (album_id, asset_id) VALUES (?, ?) ON CONFLICT DO NOTHING');
+      let added = 0;
+      for (const a of assetIds) added += Number(stmt.run(id, a).changes);
+      db.prepare("UPDATE albums SET updated_at = datetime('now') WHERE id = ?").run(id);
+      return added;
+    }),
+  removeAssets: (id: number, assetIds: string[]) =>
+    transaction(() => {
+      const stmt = db.prepare('DELETE FROM album_assets WHERE album_id = ? AND asset_id = ?');
+      for (const a of assetIds) stmt.run(id, a);
+      // 封面被移出去了就清掉
+      db.prepare("UPDATE albums SET cover_asset_id = NULL WHERE id = ? AND cover_asset_id NOT IN (SELECT asset_id FROM album_assets WHERE album_id = ?)").run(id, id);
+      db.prepare("UPDATE albums SET updated_at = datetime('now') WHERE id = ?").run(id);
+    }),
+};
+
+// ---------------------------------------------------------------- 点赞、留言
+
+export type Comment = { id: number; assetId: string; actor: string; name: string; text: string; createdAt: string };
+const commentCols = 'id, asset_id AS assetId, actor, name, text, created_at AS createdAt';
+
+export const social = {
+  likes: (assetId: string) =>
+    db.prepare('SELECT actor, name, created_at AS createdAt FROM asset_likes WHERE asset_id = ? ORDER BY created_at').all(assetId) as { actor: string; name: string; createdAt: string }[],
+  toggleLike: (assetId: string, actor: string, name: string) =>
+    transaction(() => {
+      if (db.prepare('DELETE FROM asset_likes WHERE asset_id = ? AND actor = ?').run(assetId, actor).changes) return false;
+      db.prepare('INSERT INTO asset_likes (asset_id, actor, name) VALUES (?, ?, ?)').run(assetId, actor, name);
+      return true;
+    }),
+  comments: (assetId: string) => db.prepare(`SELECT ${commentCols} FROM asset_comments WHERE asset_id = ? ORDER BY created_at, id`).all(assetId) as Comment[],
+  comment: (id: number) => db.prepare(`SELECT ${commentCols} FROM asset_comments WHERE id = ?`).get(id) as Comment | undefined,
+  addComment: (c: { assetId: string; actor: string; name: string; text: string }) =>
+    db.prepare(`INSERT INTO asset_comments (asset_id, actor, name, text) VALUES (?, ?, ?, ?) RETURNING ${commentCols}`).get(c.assetId, c.actor, c.name, c.text) as Comment,
+  removeComment: (id: number) => db.prepare('DELETE FROM asset_comments WHERE id = ?').run(id).changes > 0,
+  /** 最近的互动（点赞和留言），首页“家人的留言”用 */
+  recent: (limit: number) =>
+    db
+      .prepare(
+        `SELECT * FROM (
+           SELECT 'comment' AS kind, asset_id AS assetId, actor, name, text, created_at AS createdAt FROM asset_comments
+           UNION ALL
+           SELECT 'like' AS kind, asset_id AS assetId, actor, name, '' AS text, created_at AS createdAt FROM asset_likes
+         ) ORDER BY createdAt DESC LIMIT ?`,
+      )
+      .all(limit) as { kind: 'comment' | 'like'; assetId: string; actor: string; name: string; text: string; createdAt: string }[],
+  counts: (assetIds: string[]) => {
+    if (!assetIds.length) return new Map<string, { likes: number; comments: number }>();
+    const marks = assetIds.map(() => '?').join(',');
+    const rows = db
+      .prepare(
+        `SELECT asset_id AS id, sum(l) AS likes, sum(c) AS comments FROM (
+           SELECT asset_id, 1 AS l, 0 AS c FROM asset_likes WHERE asset_id IN (${marks})
+           UNION ALL SELECT asset_id, 0, 1 FROM asset_comments WHERE asset_id IN (${marks})
+         ) GROUP BY asset_id`,
+      )
+      .all(...assetIds, ...assetIds) as { id: string; likes: number; comments: number }[];
+    return new Map(rows.map((r) => [r.id, { likes: r.likes, comments: r.comments }]));
+  },
+};
+
+// ---------------------------------------------------------------- 推送偏好
+
+export type NotifyPrefs = { milestones: boolean; weekly: boolean; family: boolean; system: boolean };
+const DEFAULT_PREFS: NotifyPrefs = { milestones: true, weekly: true, family: true, system: true };
+
+export const notifyPrefs = {
+  get: (userId: number): NotifyPrefs => {
+    const row = db.prepare('SELECT notify_prefs AS prefs FROM users WHERE id = ?').get(userId) as { prefs: string | null } | undefined;
+    return { ...DEFAULT_PREFS, ...(row?.prefs ? JSON.parse(row.prefs) : {}) };
+  },
+  set: (userId: number, prefs: Partial<NotifyPrefs>) => {
+    const next = { ...notifyPrefs.get(userId), ...prefs };
+    db.prepare('UPDATE users SET notify_prefs = ? WHERE id = ?').run(JSON.stringify(next), userId);
+    return next;
+  },
 };

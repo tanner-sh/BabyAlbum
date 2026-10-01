@@ -10,6 +10,8 @@ import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, use
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
 import { importProgress } from '../import-progress.ts';
+import { skipPerson, unnamedPeople } from '../family.ts';
+import { healthReport, runHealthChecks } from '../health.ts';
 import { MAP_TILES, mapTiles, tiandituKey } from '../map.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
 import { connectWithCredentials, immichConnected, immichStatus, MULTILINGUAL_CLIP_MODEL } from '../immich-link.ts';
@@ -346,6 +348,10 @@ export async function adminRoutes(app: FastifyInstance) {
     return appSettings();
   });
 
+  // ---- 系统状态
+  app.get('/api/admin/health', async (req) => healthReport() ?? runHealthChecks(req.log));
+  app.post('/api/admin/health/check', async (req) => runHealthChecks(req.log));
+
   // ---- 导入进度（照片、视频各剩多少，预计还要多久）
   app.get('/api/admin/import-progress', async () => importProgress());
 
@@ -649,10 +655,21 @@ export async function adminRoutes(app: FastifyInstance) {
     return result.filter((p) => p.assets > 0 && p.together <= Math.max(1, p.assets * 0.01)).sort((a, b) => b.assets - a.assets);
   });
 
+  // ---- 认识家里人：还没命名、经常和宝宝同框的人物
+  app.get('/api/admin/people/unnamed', async () => unnamedPeople());
+
+  app.post('/api/admin/people/:id/skip', async (req) => {
+    const { id } = uuidParams.parse(req.params);
+    skipPerson(id);
+    return { ok: true };
+  });
+
   app.put('/api/admin/people/:id', async (req) => {
     const { id } = uuidParams.parse(req.params);
     const body = z.object({ name: z.string().trim().max(50).optional(), birthDate: z.iso.date().nullable().optional(), isHidden: z.boolean().optional() }).parse(req.body);
     const p = await immich.updatePerson({ id, personUpdateDto: body });
+    // 名字变了，家人列表、全家福要重新算
+    clearAlbumCache();
     return { id: p.id, name: p.name, birthDate: p.birthDate, isHidden: p.isHidden };
   });
 

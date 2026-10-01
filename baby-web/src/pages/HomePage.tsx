@@ -1,10 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby as BabyIcon, CalendarHeart, Plus } from 'lucide-react';
+import { Baby as BabyIcon, BookImage, CalendarHeart, Columns2, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useNavigate, useOutletContext } from 'react-router';
 import { get, request, thumbUrl, useAlbum, useBabies, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
 import { ClaimBanner, SexPicker } from '../components/ClaimBaby';
+import { FamilyHint } from '../components/FamilyIntro';
+import { RecentInteractions } from '../components/RecentInteractions';
+import { HealthBanner } from './admin/HealthPage';
 import { ReviewBanner } from '../components/ReviewTab';
 import { Avatar, Empty, ErrorBox, Modal, Spinner } from '../components/ui';
 import { formatDate } from '../format';
@@ -20,6 +23,7 @@ export function HomePage() {
 
   return (
     <>
+      {isAdmin && <HealthBanner />}
       {isAdmin && <ClaimBanner />}
       {babies.data.length === 0 ? (
         <Empty icon={<BabyIcon size={48} />} title="欢迎使用宝宝相册">
@@ -55,6 +59,16 @@ export function HomePage() {
               </button>
             )}
           </div>
+          {isAdmin && <FamilyHint />}
+          <nav className="quick-links">
+            <Link to="/albums">
+              <BookImage size={18} /> 相册
+            </Link>
+            <Link to="/compare">
+              <Columns2 size={18} /> 同龄对比
+            </Link>
+          </nav>
+          <RecentInteractions />
           {babies.data.map((b) => (
             <ReviewBanner key={`review-${b.id}`} baby={b} />
           ))}

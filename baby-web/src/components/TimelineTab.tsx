@@ -1,13 +1,18 @@
-import { Flag, ImageOff } from 'lucide-react';
+import { Flag, ImageOff, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMilestones, useTimeline, type AlbumItem, type Baby, type TimelineGroup } from '../api';
+import { useAlbum, useCompanions, useMilestones, useTimeline, type AlbumItem, type Baby, type TimelineGroup } from '../api';
 import { ageMonths } from '../format';
 import { Lightbox } from './Lightbox';
 import { PhotoGrid } from './PhotoGrid';
-import { Empty, ErrorBox, Spinner } from './ui';
+import { SelectionBar, useSelection } from './AlbumPicker';
+import { Avatar, Empty, ErrorBox, Spinner } from './ui';
 
 export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (item: AlbumItem) => void }) {
-  const timeline = useTimeline(baby.id);
+  const album = useAlbum();
+  const [withWho, setWithWho] = useState<string | null>(null);
+  const timeline = useTimeline(baby.id, withWho);
+  const selection = useSelection();
+  const canSelect = !album.readOnly && album.base === '/api';
   const milestones = useMilestones(baby.id);
   const [open, setOpen] = useState<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -49,8 +54,33 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (timeline.isPending) return <Spinner />;
+  const filter = (
+    <div className="timeline-tools">
+      <CompanionFilter baby={baby} value={withWho} onChange={setWithWho} />
+      {canSelect && !selection.selected && (
+        <button className="btn btn-small select-btn" onClick={selection.start}>
+          选择
+        </button>
+      )}
+    </div>
+  );
+  if (timeline.isPending) return (
+    <>
+      {filter}
+      <Spinner />
+    </>
+  );
   if (timeline.isError) return <ErrorBox error={timeline.error} />;
+  if (!flat.length && withWho) {
+    return (
+      <>
+        {filter}
+        <Empty icon={<Users size={40} />} title={withWho === 'family' ? '还没找到全家福' : '还没有合照'}>
+          {withWho === 'family' ? `全家福是${baby.name}和至少两位已命名的家人一起出现的照片。` : '照片还在导入和识别，过一阵再来看看。'}
+        </Empty>
+      </>
+    );
+  }
   if (!flat.length) {
     return (
       <Empty icon={<ImageOff size={40} />} title="还没有照片">
@@ -61,6 +91,7 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
 
   return (
     <>
+      {filter}
       {groups.map((g) => (
         <section key={g.label} className="group">
           <header className="group-header">
@@ -73,9 +104,10 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
               </span>
             ))}
           </header>
-          <PhotoGrid items={g.items} onOpen={(i) => setOpen(g.offset + i)} />
+          <PhotoGrid items={g.items} onOpen={(i) => setOpen(g.offset + i)} selected={selection.selected} onToggle={selection.toggle} />
         </section>
       ))}
+      {selection.selected && <SelectionBar selected={selection.selected} onClear={selection.stop} />}
       <div ref={sentinel} />
       {isFetchingNextPage && <Spinner />}
       {!hasNextPage && flat.length > 30 && <p className="end-note">到底啦，这是{baby.name}最早的照片</p>}
@@ -93,5 +125,36 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
         />
       )}
     </>
+  );
+}
+
+/** 和谁在一起：已命名、和宝宝同框过的家人，以及全家福 */
+function CompanionFilter({ baby, value, onChange }: { baby: Baby; value: string | null; onChange: (v: string | null) => void }) {
+  const album = useAlbum();
+  // 分享链接里不显示家人（接口也只返回空列表）
+  const companions = useCompanions(album.base === '/api' ? baby.id : -1);
+  // 还没给家人命名时不显示
+  const list = album.base === '/api' ? (companions.data ?? []) : [];
+  if (!list.length) return null;
+  return (
+    <div className="companions" role="group" aria-label="和谁在一起">
+      <span className="muted">和谁在一起</span>
+      <button className={`chip ${value === null ? 'chip-accent' : ''}`} onClick={() => onChange(null)}>
+        全部
+      </button>
+      {list.map((p) => (
+        <button key={p.id} className={`chip companion ${value === p.id ? 'chip-accent' : ''}`} onClick={() => onChange(value === p.id ? null : p.id)}>
+          <Avatar baby={{ name: p.name, thumbnailUrl: p.thumbnailUrl }} size={22} />
+          {p.name}
+          <span className="muted">{p.count.toLocaleString()}</span>
+        </button>
+      ))}
+      {list.length >= 2 && (
+        <button className={`chip ${value === 'family' ? 'chip-accent' : ''}`} onClick={() => onChange(value === 'family' ? null : 'family')}>
+          <Users size={14} />
+          全家福
+        </button>
+      )}
+    </div>
   );
 }

@@ -1,0 +1,13 @@
+{
+  "name": "baby-album-tests",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "端到端测试：对 scripts/dev-up.sh 启动的测试环境跑接口测试和界面测试",
+  "scripts": {
+    "test": "sh ../scripts/test-e2e.sh"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
+  }
+}

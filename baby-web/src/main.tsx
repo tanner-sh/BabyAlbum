@@ -10,7 +10,10 @@ import { PeoplePage } from './pages/admin/PeoplePage';
 import { SettingsPage } from './pages/admin/SettingsPage';
 import { AccountPage, InvitePage, LoginPage, SetupPage } from './pages/AuthPages';
 import { BabyPage } from './pages/BabyPage';
+import { AlbumPage, AlbumsPage } from './pages/AlbumsPage';
+import { AssetPage } from './pages/AssetPage';
 import { BookPage } from './pages/BookPage';
+import { HealthPage } from './pages/admin/HealthPage';
 import { SearchPage } from './pages/SearchPage';
 import { DuplicatesPage } from './pages/admin/DuplicatesPage';
 import { ComparePage } from './pages/ComparePage';
@@ -49,6 +52,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="baby/:id" element={<BabyPage />} />
             <Route path="baby/:id/book" element={<BookPage />} />
             <Route path="search" element={<SearchPage />} />
+            <Route path="albums" element={<AlbumsPage />} />
+            <Route path="albums/:id" element={<AlbumPage />} />
+            <Route path="asset/:id" element={<AssetPage />} />
             <Route path="photos" element={<PhotosPage />} />
             <Route path="compare" element={<ComparePage />} />
             <Route path="shares" element={<SharesPage />} />
@@ -58,6 +64,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="library" element={<LibraryPage />} />
               <Route path="people" element={<PeoplePage />} />
               <Route path="tidy" element={<DuplicatesPage />} />
+              <Route path="health" element={<HealthPage />} />
               <Route path="members" element={<MembersPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

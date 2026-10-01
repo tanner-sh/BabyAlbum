@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, BellOff, LogOut, Share, Smartphone, SquarePlus } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
-import { get, request, ROLE_HINTS, ROLE_LABELS, useSetupStatus, type Role, type SetupStatus } from '../api';
-import { Spinner } from '../components/ui';
+import { get, request, ROLE_HINTS, ROLE_LABELS, useMe, useSetupStatus, type NotifyPrefs, type Role, type SetupStatus } from '../api';
+import { Spinner, Toggle } from '../components/ui';
 import { canPromptInstall, currentSubscription, disablePush, enablePush, isIos, isStandalone, onInstallAvailable, promptInstall, pushSupport } from '../pwa';
 
 // 首次设置、登录、邀请注册、修改密码
@@ -184,6 +184,7 @@ export function InvitePage() {
 /** 我的账号：修改密码 */
 export function AccountPage() {
   const queryClient = useQueryClient();
+  const me = useMe();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [done, setDone] = useState(false);
@@ -203,7 +204,7 @@ export function AccountPage() {
   return (
     <div className="narrow">
       <InstallSection />
-      <NotificationSection />
+      <NotificationSection isAdmin={me.data?.role === 'admin'} />
       <h1>修改密码</h1>
       <form className="form card" onSubmit={submit}>
         <Field label="当前密码">
@@ -259,8 +260,33 @@ function InstallSection() {
   );
 }
 
+const PREF_LABELS: { key: keyof NotifyPrefs; label: string; hint: string; adminOnly?: boolean }[] = [
+  { key: 'milestones', label: '生日、满月回顾', hint: '那天早上 9 点' },
+  { key: 'weekly', label: '每周小结', hint: '周日晚上 8 点：这周拍了多少张宝宝的照片' },
+  { key: 'family', label: '家人的点赞、留言', hint: '有人给照片点赞、留言时' },
+  { key: 'system', label: '系统提醒', hint: '存储断开、证书快到期、备份失败等', adminOnly: true },
+];
+
+/** 想收到哪些提醒（对这个账号的所有设备生效） */
+function NotifyPrefsEditor({ isAdmin }: { isAdmin: boolean }) {
+  const queryClient = useQueryClient();
+  const prefs = useQuery({ queryKey: ['push-prefs'], queryFn: () => get<NotifyPrefs>('/api/push/prefs') });
+  const weekly = useQuery({ queryKey: ['weekly-preview'], queryFn: () => get<{ title: string; body: string }>('/api/push/weekly-preview'), staleTime: 10 * 60_000 });
+  if (!prefs.data) return null;
+  async function set(key: keyof NotifyPrefs, value: boolean) {
+    queryClient.setQueryData(['push-prefs'], await request<NotifyPrefs>('PUT', '/api/push/prefs', { [key]: value }));
+  }
+  return (
+    <div className="notify-prefs">
+      {PREF_LABELS.filter((p) => !p.adminOnly || isAdmin).map((p) => (
+        <Toggle key={p.key} checked={prefs.data[p.key]} onChange={(v) => set(p.key, v)} label={p.label} hint={p.key === 'weekly' && weekly.data ? `${p.hint}。这周：${weekly.data.body}` : p.hint} />
+      ))}
+    </div>
+  );
+}
+
 /** 生日、满月提醒（推送通知） */
-function NotificationSection() {
+function NotificationSection({ isAdmin }: { isAdmin: boolean }) {
   const support = pushSupport();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -286,9 +312,9 @@ function NotificationSection() {
   return (
     <section className="card account-section">
       <h2>
-        <Bell size={18} /> 生日、满月提醒
+        <Bell size={18} /> 提醒
       </h2>
-      <p className="muted">宝宝生日、满月（3 岁以内）那天早上 9 点，推送一条通知，点开就是这一年、这个月的精选回顾。</p>
+      <p className="muted">在手机上打开通知后，可以收到宝宝生日和满月的回顾、每周小结、家人的点赞留言。</p>
       {support === 'insecure' ? (
         <p className="muted">需要通过 HTTPS 访问宝宝相册才能接收通知。</p>
       ) : support === 'ios-needs-install' ? (
@@ -312,6 +338,7 @@ function NotificationSection() {
         </button>
       )}
       {message && <p className="muted">{message}</p>}
+      <NotifyPrefsEditor isAdmin={isAdmin} />
     </section>
   );
 }

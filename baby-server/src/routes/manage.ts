@@ -10,8 +10,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { allPhotos, clearAlbumCache, dateIssues } from '../album.ts';
 import { adminOnly, canSeeBaby, editors, newToken } from '../auth.ts';
-import { babies, dateOverrides, growthRecords, journal, milestones, shares, type Baby, type Share, type User } from '../db.ts';
+import { albums, babies, dateOverrides, growthRecords, journal, milestones, shares, social, type Baby, type Share, type User } from '../db.ts';
 import { immich, proxyMedia } from '../immich.ts';
+import { namedPeople } from '../family.ts';
 import { hashPassword } from '../password.ts';
 import { assetBelongsTo, journalView, measurementView, milestoneView, registerAlbumRoutes, withAge } from './album.ts';
 
@@ -50,7 +51,10 @@ const journalBody = z.object({ date: z.iso.date(), text: z.string().trim().min(1
 
 const shareBody = z.object({
   label: z.string().trim().min(1).max(50),
-  babyIds: z.array(z.number().int()).min(1),
+  // 分享宝宝（babyIds）或者分享一个相册（albumId），二选一
+  babyIds: z.array(z.number().int()).default([]),
+  albumId: z.number().int().nullable().default(null),
+  allowComments: z.boolean().default(true),
   // 不填表示永久有效
   expiresInDays: z.number().int().min(1).max(3650).optional(),
   // 访问密码：新建时不填表示不设密码；修改时 undefined 表示不改，null 表示去掉密码
@@ -89,10 +93,11 @@ async function assetFor(req: FastifyRequest, reply: FastifyReply, assetId: strin
 }
 
 export async function manageRoutes(app: FastifyInstance) {
-  // ---------- 人物头像（宝宝头像也用它）：管理员能看所有人物，其他人只能看自己能看的宝宝
+  // ---------- 人物头像（宝宝头像也用它）：管理员能看所有人物，其他人能看自己能看的宝宝和已命名的家人
   app.get('/api/people/:id/thumbnail', async (req, reply) => {
     const { id } = uuidParams.parse(req.params);
-    const allowed = req.user!.role === 'admin' || visibleBabies(req.user!).some((b) => b.immichPersonId === id);
+    // 已命名的家人（爸爸、奶奶……）登录的家人都能看到头像
+    const allowed = req.user!.role === 'admin' || visibleBabies(req.user!).some((b) => b.immichPersonId === id) || (await namedPeople()).has(id);
     if (!allowed) return reply.code(404).send({ message: '不存在' });
     return proxyMedia(req, reply, `/people/${id}/thumbnail`, { cacheSeconds: 3600 });
   });
@@ -254,13 +259,23 @@ export async function manageRoutes(app: FastifyInstance) {
     passwordHash: body.password === undefined ? previousHash : body.password === null ? null : await hashPassword(body.password),
     allowDownload: body.allowDownload,
     elderMode: body.elderMode,
+    albumId: body.albumId,
+    allowComments: body.allowComments,
   });
+
+  /** 分享的内容是否有效：宝宝要是自己能看的，相册要存在 */
+  const shareTargetError = (user: User, body: z.infer<typeof shareBody>) => {
+    if (body.albumId !== null) return albums.get(body.albumId) ? null : '相册不存在';
+    if (!body.babyIds.length) return '请选择要分享的宝宝';
+    const allowed = new Set(visibleBabies(user).map((b) => b.id));
+    return body.babyIds.every((id) => allowed.has(id)) ? null : '宝宝不存在';
+  };
 
   app.post('/api/shares', { preHandler: editors }, async (req, reply) => {
     const body = shareBody.parse(req.body);
-    const allowed = new Set(visibleBabies(req.user!).map((b) => b.id));
-    if (!body.babyIds.every((id) => allowed.has(id))) return reply.code(400).send({ message: '宝宝不存在' });
-    const share = shares.create({ token: newToken(), ...(await shareOptions(body, null)) });
+    const error = shareTargetError(req.user!, body);
+    if (error) return reply.code(400).send({ message: error });
+    const share = shares.create({ token: newToken(), ...(await shareOptions({ ...body, babyIds: body.albumId !== null ? [] : body.babyIds }, null)) });
     return reply.code(201).send(shareView(share));
   });
 
@@ -270,9 +285,9 @@ export async function manageRoutes(app: FastifyInstance) {
     const current = shares.get(id);
     if (!current || !shareVisible(req.user!, current.babyIds)) return reply.code(404).send({ message: '分享不存在' });
     const body = shareBody.parse(req.body);
-    const allowed = new Set(visibleBabies(req.user!).map((b) => b.id));
-    if (!body.babyIds.every((b) => allowed.has(b))) return reply.code(400).send({ message: '宝宝不存在' });
-    return shareView(shares.update(id, await shareOptions(body, current.passwordHash))!);
+    const error = shareTargetError(req.user!, body);
+    if (error) return reply.code(400).send({ message: error });
+    return shareView(shares.update(id, await shareOptions({ ...body, babyIds: body.albumId !== null ? [] : body.babyIds }, current.passwordHash))!);
   });
 
   app.delete('/api/shares/:id', { preHandler: editors }, async (req, reply) => {
@@ -281,6 +296,16 @@ export async function manageRoutes(app: FastifyInstance) {
     if (!share || !shareVisible(req.user!, share.babyIds)) return reply.code(404).send({ message: '分享不存在' });
     shares.remove(id);
     return reply.code(204).send();
+  });
+
+  // ---------- 最近的家人互动（点赞、留言），首页显示
+  app.get('/api/social/recent', async (req) => {
+    const recent = social.recent(60);
+    const visible = await Promise.all(recent.map(async (r) => ((await canAccessAsset(req.user!, r.assetId)) ? r : null)));
+    return visible
+      .filter((r) => r !== null)
+      .slice(0, 12)
+      .map((r) => ({ kind: r.kind, assetId: r.assetId, name: r.name, text: r.text, createdAt: r.createdAt, mine: r.actor === `u:${req.user!.id}` }));
   });
 
   // ---------- 全部照片（不管有没有宝宝）：只给能看所有宝宝的管理员和家人，只读成员、受限成员看不到
@@ -300,5 +325,8 @@ export async function manageRoutes(app: FastifyInstance) {
     allowDownload: true,
     // 和“全部照片”的权限一致：只读成员、受限成员只能搜有宝宝的照片
     searchAll: req.user!.role !== 'viewer' && unrestricted(req.user!),
+    family: true,
+    // 登录的家人都能点赞、留言；管理员和家人（member）可以删除别人的留言
+    interact: { kind: 'user', userId: req.user!.id, name: req.user!.displayName, canModerate: req.user!.role !== 'viewer' },
   }));
 }

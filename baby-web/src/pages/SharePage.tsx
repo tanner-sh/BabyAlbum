@@ -1,9 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link2Off, Lock, Search, X } from 'lucide-react';
+import { Link2Off, Lock, Play, Search, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { AlbumContext, get, request, type ShareInfo } from '../api';
+import { AlbumContext, get, request, type AlbumItem, type ShareInfo } from '../api';
 import { BabyView } from '../components/BabyView';
+import { Lightbox } from '../components/Lightbox';
+import { PhotoGrid } from '../components/PhotoGrid';
+import { Slideshow } from '../components/Slideshow';
 import { SearchBox, SearchResults } from '../components/SearchResults';
 import { Avatar, Empty, Spinner } from '../components/ui';
 import { formatDate } from '../format';
@@ -30,10 +33,11 @@ export function SharePage() {
   if (info.data.needsPassword) return <PasswordGate base={base} />;
 
   const data = info.data;
+  if (data.album) return <SharedAlbum base={base} data={data} />;
   const baby = data.babies.find((b) => b.id === Number(params.get('baby'))) ?? data.babies[0];
 
   return (
-    <AlbumContext.Provider value={{ base, readOnly: true, allowDownload: data.allowDownload }}>
+    <AlbumContext.Provider value={{ base, readOnly: true, allowDownload: data.allowDownload, interact: data.allowComments ? { visitorName: data.label } : false }}>
       <div className={`app share-app ${data.elderMode ? 'elder' : ''}`}>
         <header className="topbar">
           <span className="brand">
@@ -110,5 +114,52 @@ function PasswordGate({ base }: { base: string }) {
         </button>
       </form>
     </div>
+  );
+}
+
+/** 分享的是一个相册：只显示相册里的照片 */
+function SharedAlbum({ base, data }: { base: string; data: Extract<ShareInfo, { needsPassword: false }> }) {
+  const album = useQuery({ queryKey: [base, 'album'], queryFn: () => get<{ album: { title: string; description: string }; items: AlbumItem[] }>(`${base}/album`) });
+  const [open, setOpen] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  return (
+    <AlbumContext.Provider value={{ base, readOnly: true, allowDownload: data.allowDownload, interact: data.allowComments ? { visitorName: data.label } : false }}>
+      <div className={`app share-app ${data.elderMode ? 'elder' : ''}`}>
+        <header className="topbar">
+          <span className="brand">
+            <img src="/favicon.svg" alt="" width={28} height={28} />
+            宝宝相册
+          </span>
+          <span className="muted">分享给{data.label}</span>
+        </header>
+        <main className="page">
+          <div className="section-actions">
+            <div>
+              <h1>{data.album!.title}</h1>
+              {data.album!.description && <p className="muted">{data.album!.description}</p>}
+            </div>
+            {!!album.data?.items.length && (
+              <button className="btn btn-primary" onClick={() => setPlaying(true)}>
+                <Play size={16} fill="currentColor" />
+                播放
+              </button>
+            )}
+          </div>
+          {album.isPending ? (
+            <Spinner />
+          ) : album.isError ? (
+            <Empty title="打不开这个相册" />
+          ) : !album.data.items.length ? (
+            <Empty title="相册里还没有照片" />
+          ) : (
+            <PhotoGrid items={album.data.items} onOpen={setOpen} caption={(i) => formatDate(i.takenAt)} />
+          )}
+          {open !== null && album.data && <Lightbox items={album.data.items} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} />}
+          {playing && album.data && (
+            <Slideshow title={data.album!.title} slides={album.data.items.filter((i) => i.type === 'IMAGE').map((i) => ({ id: i.id, caption: formatDate(i.takenAt) }))} onClose={() => setPlaying(false)} />
+          )}
+        </main>
+      </div>
+    </AlbumContext.Provider>
   );
 }

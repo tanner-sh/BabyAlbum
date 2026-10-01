@@ -5,10 +5,11 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { recordFailure, secureCookie, tooManyFailures } from '../auth.ts';
-import { babies, shares, type Share } from '../db.ts';
+import { albums, babies, shares, type Share } from '../db.ts';
 import { proxyMedia } from '../immich.ts';
 import { verifyPassword } from '../password.ts';
 import { assetBelongsTo, registerAlbumRoutes, withAge, type AlbumContext } from './album.ts';
+import { albumItems } from './albums.ts';
 
 const tokenParams = z.object({ token: z.string().min(10).max(64) });
 const personParams = tokenParams.extend({ personId: z.uuid() });
@@ -30,9 +31,14 @@ function loadShare(req: FastifyRequest) {
   const { token } = tokenParams.parse(req.params);
   const share = shares.byToken(token);
   if (!share || (share.expiresAt && share.expiresAt < new Date().toISOString())) return null;
+  // 分享的是一个相册：相册删了链接就失效
+  if (share.albumId !== null) {
+    const album = albums.get(share.albumId);
+    return album ? { share, babies: [], album } : null;
+  }
   // 宝宝被删除后自动从分享中去掉
   const list = share.babyIds.map((id) => babies.get(id)).filter((b) => b !== undefined);
-  return list.length ? { share, babies: list } : null;
+  return list.length ? { share, babies: list, album: null } : null;
 }
 
 async function resolve(req: FastifyRequest, reply: FastifyReply): Promise<AlbumContext | null> {
@@ -45,11 +51,16 @@ async function resolve(req: FastifyRequest, reply: FastifyReply): Promise<AlbumC
     reply.code(401).send({ message: '请输入访问密码', code: 'SHARE_PASSWORD' });
     return null;
   }
+  const { share, album } = found;
   return {
     babies: found.babies,
-    canAccessAsset: (assetId) => assetBelongsTo(found.babies, assetId),
-    allowDownload: found.share.allowDownload,
+    // 分享相册：只能看相册里的照片；分享宝宝：只能看有这些宝宝的照片
+    canAccessAsset: (assetId) => (album ? Promise.resolve(albums.has(album.id, assetId)) : assetBelongsTo(found.babies, assetId)),
+    allowDownload: share.allowDownload,
     searchAll: false,
+    family: false,
+    // 访客的称呼默认是分享的对象（“爷爷奶奶”），第一次点赞、留言时可以改
+    interact: share.allowComments ? { kind: 'share', shareId: share.id, defaultName: share.label } : null,
   };
 }
 
@@ -67,8 +78,19 @@ export async function shareRoutes(app: FastifyInstance) {
       expiresAt: share.expiresAt,
       allowDownload: share.allowDownload,
       elderMode: share.elderMode,
+      allowComments: share.allowComments,
+      album: found.album ? { id: found.album.id, title: found.album.title, description: found.album.description } : null,
       babies: found.babies.map((b) => ({ ...withAge(b), thumbnailUrl: `${prefix}/people/${b.immichPersonId}/thumbnail` })),
     };
+  });
+
+  // 分享的相册里的照片
+  app.get('/api/share/:token/album', async (req, reply) => {
+    const ctx = await resolve(req, reply);
+    if (!ctx) return reply;
+    const found = loadShare(req)!;
+    if (!found.album) return reply.code(404).send({ message: '不存在' });
+    return { album: { title: found.album.title, description: found.album.description }, items: await albumItems(found.album.id, async () => true) };
   });
 
   app.post('/api/share/:token/unlock', async (req, reply) => {

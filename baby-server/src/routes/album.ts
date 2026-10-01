@@ -1,11 +1,16 @@
 // 只读的相册接口。登录用户挂在 /api 下，分享链接访客挂在 /api/share/:token 下，
 // 两者共用同一套路由，区别只在于上下文：能看哪些宝宝、能看哪些照片
 
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { computeAge, localToday } from '../age.ts';
 import { assetHasPerson, dayItems, growthWall, liveVideoOf, monthItems, onThisDay, review, smartSearch, timeline } from '../album.ts';
-import { dateOverrides, growthRecords, journal, milestones, type Baby } from '../db.ts';
+import { secureCookie } from '../auth.ts';
+import { dateOverrides, growthRecords, journal, milestones, social, type Baby } from '../db.ts';
+import { notifyInteraction } from '../push.ts';
+import { companions, familyPhotos, namedPeople } from '../family.ts';
+import { placeZh } from '../geo.ts';
 import { mapData, mapItems } from '../map.ts';
 import { immich, proxyMedia } from '../immich.ts';
 
@@ -16,6 +21,10 @@ export type AlbumContext = {
   allowDownload: boolean;
   /** 搜索范围：true 表示能搜全部照片（包括没有宝宝的），否则只搜有这些宝宝的照片 */
   searchAll: boolean;
+  /** 能否看家人（命名的人物）：登录用户可以，分享链接不行 */
+  family: boolean;
+  /** 点赞、留言：登录的家人，或者允许互动的分享链接的访客；null 表示不能互动 */
+  interact: { kind: 'user'; userId: number; name: string; canModerate: boolean } | { kind: 'share'; shareId: number; defaultName: string } | null;
 };
 
 type Resolver = (req: FastifyRequest, reply: FastifyReply) => Promise<AlbumContext | null>;
@@ -26,6 +35,8 @@ const assetParams = z.object({ assetId: z.uuid() });
 const timelineQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   size: z.coerce.number().int().min(1).max(500).default(120),
+  // 只看和某个家人的合照，或者全家福
+  with: z.union([z.uuid(), z.literal('family')]).optional(),
 });
 const sizeQuery = z.object({ size: z.enum(['thumbnail', 'preview']).default('thumbnail') });
 const dayParams = babyParams.extend({ date: z.iso.date() });
@@ -36,6 +47,13 @@ const searchQuery = z.object({
   baby: z.coerce.number().int().optional(),
   page: z.coerce.number().int().min(1).max(50).default(1),
 });
+
+/** 拍摄地点：“黄浦，上海，中国”（地名翻成中文，同名的只写一次） */
+function placeText(exif: { city?: string | null; state?: string | null; country?: string | null; latitude?: number | null; longitude?: number | null } | undefined) {
+  if (!exif) return null;
+  const { city, state, country } = placeZh(exif);
+  return [...new Set([city, state, country].filter((x): x is string => !!x))].join('，') || null;
+}
 
 /** 成长数据附带测量时的年龄 */
 export function measurementView(baby: Baby, r: ReturnType<typeof growthRecords.list>[number]) {
@@ -60,6 +78,16 @@ export function milestoneView(baby: Baby, m: ReturnType<typeof milestones.list>[
 export async function assetBelongsTo(babies: Baby[], assetId: string) {
   const isCover = babies.some((b) => milestones.list(b.id).some((m) => m.coverAssetId === assetId));
   return isCover || assetHasPerson(assetId, babies.map((b) => b.immichPersonId));
+}
+
+// 简单的防刷：同一个人 10 分钟内最多留言 20 条
+const recentComments = new Map<string, number[]>();
+function tooManyComments(actor: string) {
+  const now = Date.now();
+  const list = (recentComments.get(actor) ?? []).filter((t) => now - t < 10 * 60_000);
+  list.push(now);
+  recentComments.set(actor, list);
+  return list.length > 20;
 }
 
 export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolve: Resolver) {
@@ -89,8 +117,22 @@ export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolv
   app.get(`${prefix}/babies/:id/timeline`, async (req, reply) => {
     const baby = await babyFrom(req, reply);
     if (!baby) return reply;
-    const { page, size } = timelineQuery.parse(req.query);
-    return timeline(baby, page, size);
+    const { page, size, with: withWho } = timelineQuery.parse(req.query);
+    if (!withWho) return timeline(baby, page, size);
+    const ctx = (await resolve(req, reply))!;
+    if (!ctx.family) return reply.code(404).send({ message: '不存在' });
+    if (withWho === 'family') return timeline(baby, page, size, { family: () => familyPhotos(baby) });
+    // 只能按已命名的家人筛选
+    if (!(await namedPeople()).has(withWho)) return reply.code(404).send({ message: '不存在' });
+    return timeline(baby, page, size, { withPerson: withWho });
+  });
+
+  // 和宝宝同框过的家人
+  app.get(`${prefix}/babies/:id/companions`, async (req, reply) => {
+    const baby = await babyFrom(req, reply);
+    if (!baby) return reply;
+    const ctx = (await resolve(req, reply))!;
+    return ctx.family ? companions(baby) : [];
   });
 
   app.get(`${prefix}/babies/:id/on-this-day`, async (req, reply) => {
@@ -196,7 +238,7 @@ export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolv
       height: a.height,
       fileSize: a.exifInfo?.fileSizeInByte ?? null,
       camera: [a.exifInfo?.make, a.exifInfo?.model].filter(Boolean).join(' ') || null,
-      place: [a.exifInfo?.city, a.exifInfo?.country].filter(Boolean).join('，') || null,
+      place: placeText(a.exifInfo),
       // 只列出当前上下文里的宝宝，分享链接不暴露其他人物
       babies: found.ctx.babies
         .filter((b) => personIds.has(b.immichPersonId))
@@ -223,6 +265,77 @@ export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolv
     const found = await assetFrom(req, reply);
     if (!found) return reply;
     return { videoId: await liveVideoOf(found.assetId) };
+  });
+
+  // ---- 点赞、留言
+  /** 这次请求是谁：登录的家人用账号；分享链接的访客用浏览器里记住的访客 ID（没有就发一个） */
+  function actorOf(req: FastifyRequest, reply: FastifyReply, ctx: AlbumContext, name?: string) {
+    const it = ctx.interact;
+    if (!it) return null;
+    if (it.kind === 'user') return { id: `u:${it.userId}`, name: it.name, canModerate: it.canModerate };
+    const cookieName = `visitor_${it.shareId}`;
+    const raw = req.cookies[cookieName];
+    let visitor = raw ? req.unsignCookie(raw) : null;
+    if (!visitor?.valid || !visitor.value) {
+      const value = randomBytes(12).toString('base64url');
+      reply.setCookie(cookieName, value, { signed: true, httpOnly: true, sameSite: 'lax', secure: secureCookie(req), path: '/', maxAge: 365 * 24 * 3600 });
+      visitor = { valid: true, renew: false, value };
+    }
+    return { id: `s:${it.shareId}:${visitor.value}`, name: name?.trim() || it.defaultName, canModerate: false };
+  }
+
+  const socialView = (assetId: string, me: string | null, canModerate: boolean) => ({
+    likes: social.likes(assetId).map((l) => ({ name: l.name, mine: l.actor === me })),
+    comments: social.comments(assetId).map((c) => ({ id: c.id, name: c.name, text: c.text, createdAt: c.createdAt, mine: c.actor === me, canDelete: c.actor === me || canModerate })),
+  });
+
+  app.get(`${prefix}/assets/:assetId/social`, async (req, reply) => {
+    const found = await assetFrom(req, reply);
+    if (!found) return reply;
+    if (!found.ctx.interact) return reply.code(404).send({ message: '不存在' });
+    // 只读接口不发访客 ID：没互动过的访客看不到“我的”
+    const it = found.ctx.interact;
+    const raw = it.kind === 'share' ? req.cookies[`visitor_${it.shareId}`] : null;
+    const visitor = raw ? req.unsignCookie(raw) : null;
+    const me = it.kind === 'user' ? `u:${it.userId}` : visitor?.valid ? `s:${it.shareId}:${visitor.value}` : null;
+    return socialView(found.assetId, me, it.kind === 'user' && it.canModerate);
+  });
+
+  const nameBody = z.object({ name: z.string().trim().max(30).optional() });
+
+  app.post(`${prefix}/assets/:assetId/like`, async (req, reply) => {
+    const found = await assetFrom(req, reply);
+    if (!found) return reply;
+    const actor = actorOf(req, reply, found.ctx, nameBody.parse(req.body ?? {}).name);
+    if (!actor) return reply.code(403).send({ message: '这个分享没有打开点赞留言' });
+    const liked = social.toggleLike(found.assetId, actor.id, actor.name);
+    if (liked) notifyInteraction({ assetId: found.assetId, actor: actor.id, text: `${actor.name}赞了一张照片` });
+    return socialView(found.assetId, actor.id, actor.canModerate);
+  });
+
+  app.post(`${prefix}/assets/:assetId/comments`, async (req, reply) => {
+    const found = await assetFrom(req, reply);
+    if (!found) return reply;
+    const body = nameBody.extend({ text: z.string().trim().min(1, '写点什么吧').max(500) }).parse(req.body);
+    const actor = actorOf(req, reply, found.ctx, body.name);
+    if (!actor) return reply.code(403).send({ message: '这个分享没有打开点赞留言' });
+    if (tooManyComments(actor.id)) return reply.code(429).send({ message: '留言太频繁了，歇一会儿再来' });
+    social.addComment({ assetId: found.assetId, actor: actor.id, name: actor.name, text: body.text });
+    notifyInteraction({ assetId: found.assetId, actor: actor.id, text: `${actor.name}：${body.text}` });
+    return socialView(found.assetId, actor.id, actor.canModerate);
+  });
+
+  // 删除留言：自己的，或者管理员、家人删别人的
+  app.delete(`${prefix}/comments/:commentId`, async (req, reply) => {
+    const ctx = await resolve(req, reply);
+    if (!ctx) return reply;
+    const { commentId } = z.object({ commentId: z.coerce.number().int() }).parse(req.params);
+    const comment = social.comment(commentId);
+    const actor = actorOf(req, reply, ctx);
+    if (!comment || !actor || !(await ctx.canAccessAsset(comment.assetId))) return reply.code(404).send({ message: '留言不存在' });
+    if (comment.actor !== actor.id && !actor.canModerate) return reply.code(403).send({ message: '只能删除自己的留言' });
+    social.removeComment(commentId);
+    return reply.code(204).send();
   });
 
   // 实况照片的视频部分：按照片检查权限（视频本身可能没有识别出人脸）

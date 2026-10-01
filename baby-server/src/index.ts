@@ -12,8 +12,10 @@ import { startNasReconcile } from './nas.ts';
 import { startStorageUsage } from './storage-usage.ts';
 import { startImportProgress } from './import-progress.ts';
 import { pushRoutes, startPushScheduler } from './push.ts';
+import { rememberHttpsHost, startHealthChecks } from './health.ts';
 import { immich, ImmichNotConnectedError } from './immich.ts';
 import { adminRoutes } from './routes/admin.ts';
+import { albumRoutes } from './routes/albums.ts';
 import { manageRoutes } from './routes/manage.ts';
 import { shareRoutes } from './routes/share.ts';
 
@@ -41,11 +43,17 @@ app.setErrorHandler((err, req, reply) => {
 });
 
 await app.register(cookie, { secret: config.SESSION_SECRET });
+
+// 记下家人通过 HTTPS 访问的地址，系统状态页用它检查证书
+app.addHook('onRequest', async (req) => {
+  if (req.protocol === 'https') rememberHttpsHost(req.host);
+});
 setupAuth(app);
 
 app.get('/api/health', async () => ({ ok: true, immich: immichConnected() ? 'connected' : 'not_connected' }));
 
 await app.register(manageRoutes);
+await app.register(albumRoutes);
 await app.register(adminRoutes);
 await app.register(shareRoutes);
 await app.register(pushRoutes);
@@ -69,3 +77,4 @@ startNasReconcile(app.log);
 startStorageUsage(app.log);
 startImportProgress(app.log);
 startPushScheduler(app.log);
+startHealthChecks(app.log);

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Columns2, House, Images, KeyRound, LogOut, Search, Settings, Share2 } from 'lucide-react';
+import { BookImage, Columns2, House, Images, KeyRound, LogOut, Search, Settings, Share2 } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router';
 import { AlbumContext, ApiError, canEdit, canSeeAllPhotos, request, ROLE_LABELS, useMe, useSetupStatus } from '../api';
 import { Spinner } from '../components/ui';
@@ -25,7 +25,7 @@ export function Layout() {
 
   return (
     // 只读成员看不到任何编辑按钮
-    <AlbumContext.Provider value={{ base: '/api', readOnly: !canEdit(user), allowDownload: true }}>
+    <AlbumContext.Provider value={{ base: '/api', readOnly: !canEdit(user), allowDownload: true, interact: {} }}>
       <div className="app">
         <header className="topbar">
           <Link to="/" className="brand">
@@ -44,12 +44,17 @@ export function Layout() {
                 <span className="narrow-only">照片</span>
               </NavLink>
             )}
+            <NavLink to="/albums">
+              <BookImage size={18} />
+              <span>相册</span>
+            </NavLink>
             <NavLink to="/search">
               <Search size={18} />
               <span className="wide-only">搜索 · 地图</span>
               <span className="narrow-only">搜索</span>
             </NavLink>
-            <NavLink to="/compare">
+            {/* 手机底栏放不下，同龄对比的入口在首页 */}
+            <NavLink to="/compare" className="wide-only-link">
               <Columns2 size={18} />
               <span className="wide-only">同龄对比</span>
               <span className="narrow-only">对比</span>

@@ -1,0 +1,82 @@
+# 每次推送、提 PR 时自动测试：
+# - check：类型检查、单元测试、前端构建（一两分钟）
+# - e2e：启动完整的测试环境（Immich + 宝宝相册 + 测试照片），跑接口测试和界面测试（十几分钟）
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            baby-server/package-lock.json
+            baby-web/package-lock.json
+      - name: 后端：安装依赖
+        working-directory: baby-server
+        run: npm ci
+      - name: 后端：类型检查
+        working-directory: baby-server
+        run: npm run typecheck
+      - name: 后端：单元测试
+        working-directory: baby-server
+        run: npm test
+      - name: 前端：安装依赖
+        working-directory: baby-web
+        run: npm ci
+      - name: 前端：类型检查和构建
+        working-directory: baby-web
+        run: npm run build
+
+  e2e:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            baby-server/package-lock.json
+            tests/package-lock.json
+      - name: 安装 ffmpeg（生成测试照片用）
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: 安装依赖
+        run: |
+          (cd baby-server && npm ci)
+          (cd tests && npm ci)
+      - name: 启动测试环境、补充测试数据
+        run: |
+          sh scripts/dev-up.sh
+          sh scripts/dev-fixtures.sh
+      - name: 接口测试和界面测试
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: sh scripts/test-e2e.sh
+      - name: 失败时收集日志
+        if: failure()
+        run: |
+          mkdir -p tests/shots
+          for c in baby_server immich_server nas_mounter; do docker logs "$c" > "tests/shots/$c.log" 2>&1 || true; done
+      - name: 上传截图和日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: tests/shots/
+          retention-days: 7

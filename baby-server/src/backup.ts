@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { localToday } from './age.ts';
-import { db } from './db.ts';
+import { db, settings } from './db.ts';
 
 const KEEP = 14;
 const PREFIX = 'baby-';
@@ -25,10 +25,14 @@ export function backupNow(dir: string): string {
 
 export function scheduleBackups(dir: string, log: FastifyBaseLogger) {
   const run = () => {
+    // 记下最近一次的结果，系统状态页用
     try {
       log.info(`数据库已备份到 ${backupNow(dir)}`);
+      settings.set('backup.lastOk', new Date().toISOString());
+      settings.remove('backup.lastError');
     } catch (err) {
       log.error(err, '数据库备份失败');
+      settings.set('backup.lastError', JSON.stringify({ at: new Date().toISOString(), message: err instanceof Error ? err.message : String(err) }));
     }
   };
   run();

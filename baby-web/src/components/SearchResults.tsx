@@ -1,6 +1,7 @@
 import { SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearch, type AlbumItem } from '../api';
+import { useAlbum, useSearch, type AlbumItem } from '../api';
+import { SelectionBar, useSelection } from './AlbumPicker';
 import { formatDate } from '../format';
 import { Lightbox } from './Lightbox';
 import { PhotoGrid } from './PhotoGrid';
@@ -10,7 +11,9 @@ export const SEARCH_EXAMPLES = ['在海边', '吃蛋糕', '哭', '睡觉', '洗�
 
 /** 语义搜索的结果：按相关程度排序，滚动到底自动加载更多 */
 export function SearchResults({ q, babyId, onMilestone }: { q: string; babyId: number | null; onMilestone?: (item: AlbumItem) => void }) {
+  const album = useAlbum();
   const search = useSearch(q, babyId);
+  const selection = useSelection();
   const [open, setOpen] = useState<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const items = useMemo(() => {
@@ -40,8 +43,16 @@ export function SearchResults({ q, babyId, onMilestone }: { q: string; babyId: n
   }
   return (
     <>
-      <p className="muted small">按相关程度排序，越靠前越像“{q}”</p>
-      <PhotoGrid items={items} onOpen={setOpen} caption={(i) => i.age?.label ?? formatDate(i.takenAt)} />
+      <div className="timeline-tools">
+        <p className="muted small">按相关程度排序，越靠前越像“{q}”</p>
+        {!album.readOnly && album.base === '/api' && !selection.selected && (
+          <button className="btn btn-small select-btn" onClick={selection.start}>
+            选择
+          </button>
+        )}
+      </div>
+      <PhotoGrid items={items} onOpen={setOpen} caption={(i) => i.age?.label ?? formatDate(i.takenAt)} selected={selection.selected} onToggle={selection.toggle} />
+      {selection.selected && <SelectionBar selected={selection.selected} onClear={selection.stop} />}
       <div ref={sentinel} />
       {isFetchingNextPage && <Spinner />}
       {open !== null && (

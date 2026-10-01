@@ -3,6 +3,7 @@ import { Baby as BabyIcon, Merge } from 'lucide-react';
 import { useState } from 'react';
 import { get, request, type AdminPerson, type Sex, type SimilarPerson } from '../../api';
 import { SexPicker } from '../../components/ClaimBaby';
+import { FamilyIntro } from '../../components/FamilyIntro';
 import { Avatar, ErrorBox, Modal, Spinner, Toggle } from '../../components/ui';
 
 /** 人物：人脸识别的结果。命名、设生日、合并（同一个人被拆成了几个）、设为宝宝 */
@@ -13,6 +14,7 @@ export function PeoplePage() {
 
   return (
     <div className="admin-page">
+      <FamilyIntro />
       <div className="section-actions">
         <div>
           <h2>人物</h2>

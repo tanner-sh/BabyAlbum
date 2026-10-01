@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useOutletContext } from 'react-router';
 import { canSeeAllPhotos, usePhotos, type AlbumItem, type Me } from '../api';
 import { Lightbox } from '../components/Lightbox';
+import { SelectionBar, useSelection } from '../components/AlbumPicker';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { Empty, ErrorBox, Spinner } from '../components/ui';
 
@@ -15,6 +16,7 @@ export function PhotosPage() {
 
 function AllPhotos({ isAdmin }: { isAdmin: boolean }) {
   const photos = usePhotos();
+  const selection = useSelection();
   const [open, setOpen] = useState<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
 
@@ -62,6 +64,11 @@ function AllPhotos({ isAdmin }: { isAdmin: boolean }) {
             。
           </p>
         </div>
+        {!selection.selected && (
+          <button className="btn btn-small" onClick={selection.start}>
+            选择
+          </button>
+        )}
       </div>
       {!flat.length ? (
         <Empty icon={<Images size={40} />} title="还没有照片">
@@ -74,11 +81,12 @@ function AllPhotos({ isAdmin }: { isAdmin: boolean }) {
               <h3>{g.label}</h3>
               <span className="muted">{g.items.length} 张</span>
             </header>
-            <PhotoGrid items={g.items} onOpen={(i) => setOpen(g.offset + i)} />
+            <PhotoGrid items={g.items} onOpen={(i) => setOpen(g.offset + i)} selected={selection.selected} onToggle={selection.toggle} />
           </section>
         ))
       )}
       <div ref={sentinel} />
+      {selection.selected && <SelectionBar selected={selection.selected} onClear={selection.stop} />}
       {isFetchingNextPage && <Spinner />}
       {open !== null && (
         <Lightbox

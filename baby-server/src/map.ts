@@ -1,29 +1,9 @@
 // 地图：按拍摄地点看照片。坐标来自照片的 GPS（Immich 读拍摄信息时记录），地名来自 Immich 的反向地理编码
 
-import { createRequire } from 'node:module';
-import countries from 'i18n-iso-countries';
 import { cachedPhotos, tidyAssets, toItem, toPhotoItem } from './album.ts';
 import { dateOverrides, hiddenAssets, settings, type Baby } from './db.ts';
+import { cityZh, countryZh, stateZh } from './geo.ts';
 import { immich } from './immich.ts';
-
-// ---------------------------------------------------------------- 地名翻译
-// Immich 的地名是英文：国家用 i18n-iso-countries 的英文名（这个库自带中文，直接换），
-// 中国的省份用下面的对照表；城市（区县）没有可靠的对照数据，保留拼音
-
-const require = createRequire(import.meta.url);
-countries.registerLocale(require('i18n-iso-countries/langs/en.json'));
-countries.registerLocale(require('i18n-iso-countries/langs/zh.json'));
-
-const PROVINCES: Record<string, string> = {
-  Beijing: '北京', Tianjin: '天津', Shanghai: '上海', Chongqing: '重庆', Hebei: '河北', Shanxi: '山西', 'Inner Mongolia': '内蒙古',
-  Liaoning: '辽宁', Jilin: '吉林', Heilongjiang: '黑龙江', Jiangsu: '江苏', Zhejiang: '浙江', Anhui: '安徽', Fujian: '福建', Jiangxi: '江西',
-  Shandong: '山东', Henan: '河南', Hubei: '湖北', Hunan: '湖南', Guangdong: '广东', Guangxi: '广西', Hainan: '海南', Sichuan: '四川',
-  Guizhou: '贵州', Yunnan: '云南', Tibet: '西藏', Shaanxi: '陕西', Gansu: '甘肃', Qinghai: '青海', Ningxia: '宁夏', Xinjiang: '新疆',
-  Taipei: '台北', Takao: '高雄', Taiwan: '台湾',
-};
-
-const countryZh = (name: string | null) => (name && countries.getName(countries.getAlpha2Code(name, 'en') ?? '', 'zh')) || name;
-const stateZh = (name: string | null) => (name && PROVINCES[name]) || name;
 
 // 底图：OpenStreetMap（默认）、高德（非官方的瓦片地址，不需要 Key）、天地图（官方，需要在天地图官网申请浏览器端 Key）
 export const MAP_TILES = ['osm', 'amap', 'tianditu'] as const;
@@ -69,29 +49,34 @@ export async function mapData(babies: Baby[] | null) {
   const hidden = hiddenAssets.ids();
   const visible = markers.filter((m) => !hidden.has(m.id) && (!scope || scope.has(m.id)) && (m.lat || m.lon));
 
-  // 按城市汇总，地点列表用；位置取这个城市所有照片的中心
-  const places = new Map<string, { name: string; region: string; count: number; lat: number; lon: number }>();
+  // 按城市汇总，地点列表用；位置取这个城市所有照片的中心，中文名按中心位置找（同名的地方很多）
+  const groups = new Map<string, { city: string | null; state: string | null; country: string | null; count: number; lat: number; lon: number }>();
   for (const m of visible) {
-    const state = stateZh(m.state);
-    const country = countryZh(m.country);
-    const name = m.city ?? state ?? country;
-    if (!name) continue;
+    if (!m.city && !m.state && !m.country) continue;
     const key = [m.country, m.state, m.city].join('|');
-    const p = places.get(key) ?? { name, region: [state, country].filter((x) => x && x !== name).join('，'), count: 0, lat: 0, lon: 0 };
-    p.count++;
-    p.lat += m.lat;
-    p.lon += m.lon;
-    places.set(key, p);
+    const g = groups.get(key) ?? { city: m.city, state: m.state, country: m.country, count: 0, lat: 0, lon: 0 };
+    g.count++;
+    g.lat += m.lat;
+    g.lon += m.lon;
+    groups.set(key, g);
   }
+  const places = [...groups.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 100)
+    .map((g) => {
+      const lat = g.lat / g.count;
+      const lon = g.lon / g.count;
+      const state = stateZh(g.state, g.country);
+      const country = countryZh(g.country);
+      const name = cityZh(g.city, g.country, lat, lon) ?? state ?? country ?? '';
+      return { name, region: [state, country].filter((x) => x && x !== name).join('，'), count: g.count, lat: round(lat), lon: round(lon) };
+    });
   const tiles = mapTiles();
   return {
     tiles,
     tiandituKey: tiles === 'tianditu' ? tiandituKey() : null,
     markers: visible.map((m) => [m.id, round(m.lat), round(m.lon)] as const),
-    places: [...places.values()]
-      .map((p) => ({ ...p, lat: round(p.lat / p.count), lon: round(p.lon / p.count) }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 100),
+    places,
   };
 }
 

@@ -127,6 +127,36 @@ for (const baby of BABIES) {
   console.log(`${baby.name}：新标注 ${tagged} 张（共 ${mine.length} 张）`);
 }
 
+// 两位没命名的“家人”（测试“认识家里人”、和家人的合照、全家福）：
+//   家人 A：每 3 张小宝的照片、全部 family_ 照片、全部 both_ 照片
+//   家人 B：每 5 张小宝的照片、全部 both_ 照片
+// 每 15 张小宝的照片里有一张同时有小宝、A、B（全家福）
+const FAMILY_FILE = new URL('../../dev-data/dev-family.json', import.meta.url);
+const familyIds: string[] = existsSync(FAMILY_FILE) ? JSON.parse(readFileSync(FAMILY_FILE, 'utf8')) : [];
+const xb = assets.filter((a) => a.originalFileName.startsWith('xb_')).sort((a, b) => a.originalFileName.localeCompare(b.originalFileName));
+const FAMILY = [
+  { left: 0.6, pick: (a: immich.AssetResponseDto) => a.originalFileName.startsWith('family_') || a.originalFileName.startsWith('both_') || xb.indexOf(a) % 3 === 0 },
+  { left: 0.05, pick: (a: immich.AssetResponseDto) => a.originalFileName.startsWith('both_') || xb.indexOf(a) % 5 === 0 },
+];
+for (const [i, f] of FAMILY.entries()) {
+  const person = people.find((p) => p.id === familyIds[i]) ?? (await immich.createPerson({ personCreateDto: {} }));
+  familyIds[i] = person.id;
+  let tagged = 0;
+  for (const asset of assets.filter(f.pick)) {
+    if (asset.people?.some((p) => p.id === person.id)) continue;
+    const w = asset.width ?? 1600;
+    const h = asset.height ?? 1200;
+    await immich.createFace({
+      assetFaceCreateDto: { assetId: asset.id, personId: person.id, imageWidth: w, imageHeight: h, x: Math.round(w * f.left), y: Math.round(h * 0.1), width: Math.round(w * 0.2), height: Math.round(h * 0.25) },
+    });
+    tagged++;
+  }
+  const cover = assets.find((a) => f.pick(a) && a.type === immich.AssetTypeEnum.Image);
+  if (cover) await immich.updatePerson({ id: person.id, personUpdateDto: { featureFaceAssetId: cover.id } });
+  console.log(`家人 ${'AB'[i]}（未命名）：新标注 ${tagged} 张`);
+}
+writeFileSync(FAMILY_FILE, JSON.stringify(familyIds));
+
 // 随机收藏一些，用于“成长墙”优先展示收藏
 for (const a of assets.filter((a, i) => i % 9 === 0 && !a.isFavorite && a.originalFileName.startsWith('xb_'))) {
   await immich.updateAsset({ id: a.id, updateAssetDto: { isFavorite: true } });

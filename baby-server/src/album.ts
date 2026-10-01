@@ -243,14 +243,23 @@ async function pageWithCorrections(
   return { items: await tidy(items), nextPage };
 }
 
-/** 时间线：按拍摄时间倒序，按月龄分组。相邻两页可能落在同一个月龄里，前端拼接时合并同名分组即可 */
-export async function timeline(baby: Baby, page: number, size: number) {
-  const { items, nextPage } = await pageWithCorrections(
-    { personIds: [baby.immichPersonId], visibility: immich.AssetVisibility.Timeline },
-    page,
-    size,
-    (o) => correctedAssetsOf(baby, o),
-  );
+/**
+ * 时间线：按拍摄时间倒序，按月龄分组。相邻两页可能落在同一个月龄里，前端拼接时合并同名分组即可。
+ * withPerson：只看宝宝和某个人物的合照；family：全家福（由 family.ts 算好传进来）
+ */
+export async function timeline(baby: Baby, page: number, size: number, filter: { withPerson?: string; family?: () => Promise<Asset[]> } = {}) {
+  let items: Asset[];
+  let nextPage: number | null;
+  if (filter.family) {
+    const all = await filter.family();
+    items = all.slice((page - 1) * size, page * size);
+    nextPage = all.length > page * size ? page + 1 : null;
+  } else {
+    const personIds = filter.withPerson ? [baby.immichPersonId, filter.withPerson] : [baby.immichPersonId];
+    ({ items, nextPage } = await pageWithCorrections({ personIds, visibility: immich.AssetVisibility.Timeline }, page, size, async (o) =>
+      (await correctedAssetsOf(baby, o)).filter((a) => !filter.withPerson || (a.people ?? []).some((p) => p.id === filter.withPerson)),
+    ));
+  }
   const groups: { label: string; months: number; items: AlbumItem[] }[] = [];
   for (const asset of items) {
     const age = computeAge(baby.birthday, asset.localDateTime);

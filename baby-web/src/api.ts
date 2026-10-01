@@ -67,6 +67,9 @@ export type Share = {
   token: string;
   label: string;
   babyIds: number[];
+  /** 分享的是一个相册 */
+  albumId: number | null;
+  allowComments: boolean;
   expiresAt: string | null;
   createdAt: string;
   hasPassword: boolean;
@@ -75,7 +78,16 @@ export type Share = {
 };
 export type ShareInfo =
   | { needsPassword: true }
-  | { needsPassword: false; label: string; expiresAt: string | null; allowDownload: boolean; elderMode: boolean; babies: Baby[] };
+  | {
+      needsPassword: false;
+      label: string;
+      expiresAt: string | null;
+      allowDownload: boolean;
+      elderMode: boolean;
+      allowComments: boolean;
+      album: { id: number; title: string; description: string } | null;
+      babies: Baby[];
+    };
 export type Measurement = {
   id: number;
   babyId: number;
@@ -142,8 +154,12 @@ export const get = <T>(url: string) => request<T>('GET', url);
 // ---------------------------------------------------------------- 相册上下文
 // 登录用户：base = /api；分享链接访客：base = /api/share/<token>，只读
 
-export type Album = { base: string; readOnly: boolean; allowDownload: boolean };
-export const AlbumContext = createContext<Album>({ base: '/api', readOnly: false, allowDownload: true });
+/**
+ * 当前浏览的上下文：base 是接口前缀（登录用户 /api，分享链接 /api/share/<token>）；
+ * readOnly：不能编辑；interact：能不能点赞留言（分享链接里还带着访客的默认称呼）
+ */
+export type Album = { base: string; readOnly: boolean; allowDownload: boolean; interact: false | { visitorName?: string } };
+export const AlbumContext = createContext<Album>({ base: '/api', readOnly: false, allowDownload: true, interact: {} });
 export const useAlbum = () => useContext(AlbumContext);
 
 export const thumbUrl = (album: Album, id: string, size: 'thumbnail' | 'preview' = 'thumbnail') =>
@@ -155,11 +171,13 @@ export const liveUrl = (album: Album, id: string) => `${album.base}/assets/${id}
 
 // ---------------------------------------------------------------- 查询
 
-export function useTimeline(babyId: number) {
+/** withWho：只看和某个家人（人物 ID）的合照，或者 'family'（全家福） */
+export function useTimeline(babyId: number, withWho: string | null = null) {
   const album = useAlbum();
   return useInfiniteQuery({
-    queryKey: [album.base, 'timeline', babyId],
-    queryFn: ({ pageParam }) => get<TimelinePage>(`${album.base}/babies/${babyId}/timeline?page=${pageParam}&size=120`),
+    queryKey: [album.base, 'timeline', babyId, withWho],
+    queryFn: ({ pageParam }) =>
+      get<TimelinePage>(`${album.base}/babies/${babyId}/timeline?page=${pageParam}&size=120${withWho ? `&with=${withWho}` : ''}`),
     initialPageParam: 1,
     getNextPageParam: (last) => last.nextPage,
   });
@@ -409,3 +427,42 @@ export type MapTiles = 'osm' | 'amap' | 'tianditu';
 /** tiandituKey：底图是天地图时，浏览器加载瓦片要带的 Key */
 export type MapData = { tiles: MapTiles; tiandituKey: string | null; markers: [string, number, number][]; places: MapPlace[] };
 export type AppSettings = { mapTiles: MapTiles; tiandituKey: string | null };
+
+export type Companion = { id: string; name: string; count: number; thumbnailUrl: string };
+export type UnnamedPerson = { id: string; assets: number; withBaby: number; thumbnailUrl: string };
+
+export function useCompanions(babyId: number) {
+  const album = useAlbum();
+  return useQuery({
+    queryKey: [album.base, 'companions', babyId],
+    queryFn: () => get<Companion[]>(`${album.base}/babies/${babyId}/companions`),
+    staleTime: 5 * 60_000,
+    enabled: babyId > 0,
+  });
+}
+
+// ---------------------------------------------------------------- 手动相册
+
+export type PhotoAlbum = { id: number; title: string; description: string; coverAssetId: string | null; createdBy: number | null; createdAt: string; updatedAt: string; count: number };
+
+export function useAlbums() {
+  return useQuery({ queryKey: ['/api', 'albums'], queryFn: () => get<PhotoAlbum[]>('/api/albums') });
+}
+
+export function useAlbumDetail(id: number) {
+  return useQuery({ queryKey: ['/api', 'albums', id], queryFn: () => get<{ album: PhotoAlbum; items: AlbumItem[] }>(`/api/albums/${id}`) });
+}
+
+// ---------------------------------------------------------------- 点赞、留言
+
+export type Social = {
+  likes: { name: string; mine: boolean }[];
+  comments: { id: number; name: string; text: string; createdAt: string; mine: boolean; canDelete: boolean }[];
+};
+export type RecentInteraction = { kind: 'comment' | 'like'; assetId: string; name: string; text: string; createdAt: string; mine: boolean };
+
+// ---------------------------------------------------------------- 推送偏好、系统状态
+
+export type NotifyPrefs = { milestones: boolean; weekly: boolean; family: boolean; system: boolean };
+export type HealthCheck = { key: string; label: string; status: 'ok' | 'warn' | 'error' | 'skip'; message: string; hint?: string };
+export type HealthReport = { checkedAt: string; checks: HealthCheck[] };
