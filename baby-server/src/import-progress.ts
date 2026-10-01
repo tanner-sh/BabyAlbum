@@ -2,7 +2,8 @@
 //
 // Immich 的任务队列只有总数，不区分照片和视频，所以：
 // - 每分钟记录一次各队列的剩余数量，用最近一段时间的下降速度估算各步骤还要多久
-// - 导入期间每 10 分钟逐页统计一次所有文件的 hasMetadata（是否读完拍摄信息），按照片、视频分别计数；
+// - 导入期间每 10 分钟逐页统计一次所有文件是否读完了拍摄信息（读完之前 width 为空；API 里的 hasMetadata 恒为 true，不能用），
+//   按照片、视频分别计数；
 //   照片和视频的剩余时间用相邻两次统计之间的下降速度估算（视频要整个读一遍，比照片慢得多）
 
 import type { FastifyBaseLogger } from 'fastify';
@@ -82,7 +83,7 @@ async function countPending(log: FastifyBaseLogger) {
         const bucket = a.type === immich.AssetTypeEnum.Video ? video : a.type === immich.AssetTypeEnum.Image ? image : null;
         if (!bucket) continue;
         bucket.total++;
-        if (!a.hasMetadata) bucket.pending++;
+        if (a.width === null) bucket.pending++;
       }
       if (!assets.nextPage) break;
     }
