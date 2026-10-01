@@ -12,7 +12,17 @@ const CONCURRENCY = 8;
 
 let latest: { bytes: number; computedAt: string } | null = null;
 
-export const immichDataUsage = () => latest;
+let running = false;
+let refresh: (() => Promise<void>) | null = null;
+
+/**
+ * 最近一次的统计结果。结果超过 1 分钟就在后台重新统计（这次先返回旧值），
+ * 这样刚启动时统计到的 0 不会一直显示到下一次定时统计
+ */
+export function immichDataUsage() {
+  if (refresh && !running && (!latest || Date.now() - Date.parse(latest.computedAt) > 60_000)) void refresh();
+  return latest;
+}
 
 /** 递归统计目录大小。数据库备份在另一个挂载点上（可能是 NAS），不算在内 */
 function dirSize(root: string): Promise<number> {
@@ -51,13 +61,17 @@ function dirSize(root: string): Promise<number> {
 }
 
 export function startStorageUsage(log: FastifyBaseLogger) {
-  const run = async () => {
+  refresh = async () => {
+    if (running) return;
+    running = true;
     try {
       latest = { bytes: await dirSize(config.IMMICH_DATA_DIR), computedAt: new Date().toISOString() };
     } catch (err) {
       log.warn(err, '统计 Immich 数据大小失败');
+    } finally {
+      running = false;
     }
   };
-  void run();
-  setInterval(run, REFRESH_MS).unref();
+  void refresh();
+  setInterval(() => void refresh?.(), REFRESH_MS).unref();
 }
