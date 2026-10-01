@@ -18,7 +18,7 @@ export function SharePage() {
     return (
       <div className="page">
         <Empty icon={<Link2Off size={48} />} title="链接无效或已过期">
-          请联系宝宝的爸爸妈妈重新分享。
+          请联系分享给你的人重新分享。
         </Empty>
       </div>
     );

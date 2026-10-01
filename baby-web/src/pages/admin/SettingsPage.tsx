@@ -6,7 +6,7 @@ import { ErrorBox, Spinner, Toggle } from '../../components/ui';
 // Immich 的系统设置：只开放常用的几项，用中文说明。保存后立即生效，不需要重启或改 Docker 配置
 
 const TRANSCODE: { value: ImmichSettings['transcode']; label: string; hint: string }[] = [
-  { value: 'disabled', label: '不转码（推荐）', hint: '浏览器直接播放原视频。苹果设备和 Mac 上的 Chrome 都能播 HEVC；部分安卓手机、微信里可能播不了' },
+  { value: 'disabled', label: '不转码（推荐）', hint: '浏览器直接播放原视频。大多数新设备都能播放 HEVC；部分旧电脑、安卓手机、微信内置浏览器可能播不了' },
   { value: 'required', label: '只转码浏览器不支持的格式', hint: '注意：Immich 只把 H.264 当作“支持”，HEVC 视频也会被转码' },
   { value: 'optimal', label: '转码分辨率高于目标的视频', hint: '适合要通过外网给家人看视频，4K 视频会生成一份小的' },
   { value: 'all', label: '全部转码', hint: '最兼容，但最慢、最占空间' },
@@ -84,7 +84,7 @@ export function SettingsPage() {
 
   return (
     <div className="admin-page settings">
-      <Section title="视频" hint="家里的视频几乎都是 HEVC（iPhone、大疆）。转码非常耗时间和空间，几 TB 的视频要转好几天。">
+      <Section title="视频" hint="手机和相机拍的视频大多是 HEVC 格式。转码非常耗时间和空间，视频多的话要转好几天。">
         <div className="role-picker">
           {TRANSCODE.map((t) => (
             <button key={t.value} type="button" className={`role-option ${s.transcode === t.value ? 'selected' : ''}`} onClick={() => set('transcode', t.value)}>

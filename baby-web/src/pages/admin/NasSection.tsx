@@ -95,7 +95,7 @@ export function NasSection() {
           <span className="muted">
             {backup && backupSource
               ? `${backupSource.name}：${smbPath({ ...backupSource, subPath: [backupSource.subPath, backup.subPath].filter(Boolean).join('/') })}`
-              : '本机（Mac mini 坏了会丢失，建议放到 NAS 上）'}
+              : '本机（运行宝宝相册的这台设备出故障会丢失，建议放到 NAS 上）'}
           </span>
           {backup?.status.state === 'error' && <span className="text-danger">{backup.status.error}</span>}
         </div>
@@ -202,7 +202,7 @@ function NasEditor({ source, onClose }: { source: NasSource | null; onClose: () 
           <input value={form.host} onChange={(e) => set('host', e.target.value.trim())} placeholder="192.168.1.10" autoComplete="off" />
         </label>
         <label className="field">
-          <span>共享名（在 Mac 访达里连接 NAS 时看到的第一层文件夹，绿联通常是“用户名_硬盘名”）</span>
+          <span>共享名（在电脑上连接 NAS 时看到的第一层共享文件夹）</span>
           <input value={form.share} onChange={(e) => set('share', e.target.value.trim())} autoComplete="off" />
         </label>
         <label className="field">

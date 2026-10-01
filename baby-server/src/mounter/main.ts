@@ -84,7 +84,7 @@ function friendlyError(stderr: string) {
   if (s.includes('permission denied') || s.includes('error(13)')) return '用户名或密码错误，或者这个账号没有访问这个共享的权限';
   if (s.includes('no such file') || s.includes('error(2)')) return '找不到这个共享或文件夹，请检查共享名和路径';
   if (s.includes('host is down') || s.includes('error(112)') || s.includes('no route') || s.includes('timed out') || s.includes('error(115)') || s.includes('in progress'))
-    return '连不上 NAS，请检查地址；在 Mac 上还要在“系统设置 → 隐私与安全性 → 本地网络”里允许 OrbStack';
+    return '连不上 NAS，请检查地址和网络；如果宝宝相册运行在 Mac 上，还要在“系统设置 → 隐私与安全性 → 本地网络”里允许 Docker（如 OrbStack）';
   if (s.includes('connection refused') || s.includes('error(111)')) return 'NAS 拒绝了连接，请确认 NAS 开启了 SMB（Samba）服务';
   if (s.includes('operation not supported') || s.includes('error(95)')) return 'SMB 协议版本不兼容，可以试试把版本改成 2.1 或 3.1.1';
   return stderr.trim().split('\n').pop() || '挂载失败';

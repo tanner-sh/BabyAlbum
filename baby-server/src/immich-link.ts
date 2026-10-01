@@ -57,7 +57,7 @@ async function useKey(key: string): Promise<boolean> {
 async function applyRecommendedSettings(log: FastifyBaseLogger) {
   if (settings.get('immich.defaultsApplied')) return;
   const cfg = await immich.getConfig();
-  // 手机和大疆拍的视频几乎都是 HEVC，现在的浏览器大多能直接播放；Immich 默认只接受 H.264，
+  // 手机和相机拍的视频大多是 HEVC，现在的浏览器大多能直接播放；Immich 默认只接受 H.264，
   // 不改的话会把所有视频转码一遍（几 TB 的视频要转好几天）。需要时管理员可以在设置里打开
   cfg.ffmpeg.transcode = immich.TranscodePolicy.Disabled;
   await immich.updateConfig({ adminConfigDto: cfg });
