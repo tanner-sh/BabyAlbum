@@ -22,7 +22,7 @@ const schema = z.object({
   SESSION_SECRET: z.string().min(32).optional(),
   // 每日备份数据库到这个目录（例如挂载在 NAS 上的目录）；不填则不备份
   BACKUP_DIR: z.string().optional(),
-  // 通过 HTTPS 反向代理访问时设为 true，Cookie 会带上 Secure 标记
+  // 强制 Cookie 带 Secure 标记。通常不用设：经 HTTPS 访问时会自动加上
   COOKIE_SECURE: z.stringbool().default(false),
 });
 

@@ -53,7 +53,8 @@ function startSession(reply: FastifyReply, user: User) {
     signed: true,
     httpOnly: true,
     sameSite: 'lax',
-    secure: config.COOKIE_SECURE,
+    // 经 HTTPS（含反向代理转发的 X-Forwarded-Proto）访问时自动加 Secure，局域网 http 访问不受影响
+    secure: config.COOKIE_SECURE || reply.request.protocol === 'https',
     path: '/',
     maxAge: MAX_AGE_SECONDS,
   });
