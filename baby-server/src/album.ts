@@ -55,6 +55,9 @@ function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T>
   return value;
 }
 
+/** 给其他模块用的缓存（同一个缓存池，收藏、隐藏等变化时一起清掉） */
+export const cachedPhotos = cached;
+
 /** 收藏状态或宝宝资料变化后调用，让成长墙等缓存重新计算 */
 export function clearAlbumCache() {
   cache.clear();
@@ -101,73 +104,66 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 
 // ---------------------------------------------------------------- 实况照片、隐藏的照片
 
-/** 实况照片的视频一般只有 1.5～3 秒 */
+/** 实况照片的视频一般只有 1.5～3 秒；还没读完拍摄信息的视频不知道时长 */
 const LIVE_MAX_MS = 4000;
 const stemOf = (path: string) => path.slice(0, path.lastIndexOf('.')).toLowerCase();
+const parentDir = (path: string) => path.slice(0, path.lastIndexOf('/'));
+const isShortVideo = (a: Asset) => a.type === immich.AssetTypeEnum.Video && (!a.duration || a.duration <= LIVE_MAX_MS);
+
+type FolderIndex = { images: Map<string, string>; motions: Map<string, string> };
 
 /**
- * 实况照片的视频部分（iPhone 拍的 IMG_1234.HEIC + IMG_1234.MOV）。
- * Immich 读完两边的拍摄信息后会自动配对并隐藏视频；配对之前，视频会被当作单独的短视频，
- * 这里按“同一文件夹里有同名照片”识别出来
+ * 一个文件夹里的照片和短视频（按去掉扩展名的文件名索引），用来识别还没配对的实况照片
+ * （iPhone 拍的 IMG_1234.HEIC + IMG_1234.MOV）。Immich 读完两边的拍摄信息后会自动配对并隐藏视频；
+ * 配对之前视频会被当成单独的短视频，照片也没有实况标记。照片和视频的日期可能不同，不一定在同一页，
+ * 所以按文件夹找，而不是只在当前页里找
  */
-function liveSibling(video: Asset): Promise<string | null> {
-  if (video.type !== immich.AssetTypeEnum.Video || (video.duration && video.duration > LIVE_MAX_MS)) return Promise.resolve(null);
-  const stem = stemOf(video.originalPath);
-  return cached(`live:${video.id}`, 10 * 60_000, async () => {
-    // originalPath 是“包含”匹配，结果里再精确比较一次
-    const { assets } = await immich.searchAssets({ metadataSearchDto: { originalPath: `${video.originalPath.slice(0, video.originalPath.lastIndexOf('.'))}.`, size: 10 } });
-    return assets.items.find((a) => a.type === immich.AssetTypeEnum.Image && stemOf(a.originalPath) === stem)?.id ?? null;
+function folderIndex(dir: string): Promise<FolderIndex> {
+  return cached(`folder:${dir}`, 10 * 60_000, async () => {
+    const index: FolderIndex = { images: new Map(), motions: new Map() };
+    // originalPath 是“包含”匹配，会带上子文件夹，结果里再精确比较；很大的文件夹最多看 5000 个
+    for (let page = 1; page <= 5; page++) {
+      const { assets } = await immich.searchAssets({ metadataSearchDto: { originalPath: `${dir}/`, size: 1000, page } });
+      for (const a of assets.items) {
+        if (parentDir(a.originalPath) !== dir) continue;
+        if (a.type === immich.AssetTypeEnum.Image) index.images.set(stemOf(a.originalPath), a.id);
+        else if (isShortVideo(a) && a.visibility === immich.AssetVisibility.Timeline) index.motions.set(stemOf(a.originalPath), a.id);
+      }
+      if (!assets.nextPage) break;
+    }
+    return index;
   });
 }
 
-/** 照片对应的实况视频：优先用 Immich 的配对结果，没配对好之前找同名视频 */
-export function liveVideoOf(imageId: string): Promise<string | null> {
-  if (pendingMotion.has(imageId)) return Promise.resolve(pendingMotion.get(imageId)!);
-  return cached(`live-of:${imageId}`, 10 * 60_000, () => findLiveVideo(imageId));
-}
-
-async function findLiveVideo(imageId: string): Promise<string | null> {
+/** 照片对应的实况视频：优先用 Immich 的配对结果，没配对好之前找同一文件夹里的同名短视频 */
+export async function liveVideoOf(imageId: string): Promise<string | null> {
   const image = await immich.getAssetInfo({ id: imageId });
   if (image.livePhotoVideoId) return image.livePhotoVideoId;
   if (image.type !== immich.AssetTypeEnum.Image) return null;
-  const stem = stemOf(image.originalPath);
-  const { assets } = await immich.searchAssets({ metadataSearchDto: { originalPath: `${image.originalPath.slice(0, image.originalPath.lastIndexOf('.'))}.`, size: 10 } });
-  return (
-    assets.items.find((a) => a.type === immich.AssetTypeEnum.Video && stemOf(a.originalPath) === stem && (!a.duration || a.duration <= LIVE_MAX_MS))?.id ?? null
-  );
+  return (await folderIndex(parentDir(image.originalPath))).motions.get(stemOf(image.originalPath)) ?? null;
 }
 
 /**
  * 宝宝相册里要显示的：去掉被隐藏的照片、时间线上不可见的（已配对的实况视频等），
  * 还没配对的实况视频也去掉，并把它挂到对应的照片上
  */
+export const tidyAssets = (assets: Asset[]) => tidy(assets);
+
 async function tidy(assets: Asset[]): Promise<Asset[]> {
   const hidden = hiddenAssets.ids();
   const visible = assets.filter((a) => !hidden.has(a.id) && a.visibility === immich.AssetVisibility.Timeline);
-  const shortVideos = visible.filter((a) => a.type === immich.AssetTypeEnum.Video && (!a.duration || a.duration <= LIVE_MAX_MS));
-  const siblings = await mapLimit(shortVideos, 6, (v) => liveSibling(v).catch(() => null));
-  const motionIds = new Set<string>();
-  shortVideos.forEach((v, i) => {
-    const imageId = siblings[i];
-    if (!imageId) return;
-    motionIds.add(v.id);
-    rememberMotion(imageId, v.id);
-  });
-  return visible
-    .filter((a) => !motionIds.has(a.id))
-    .map((a) => (!a.livePhotoVideoId && pendingMotion.has(a.id) ? { ...a, livePhotoVideoId: pendingMotion.get(a.id)! } : a));
-}
-
-/**
- * 识别出的“还没配对的实况”：照片 ID → 视频 ID。
- * 视频没读完拍摄信息时日期可能和照片不同，两者不一定在同一页里，记下来，照片出现在别的页时也能挂上
- */
-const pendingMotion = new Map<string, string>();
-function rememberMotion(imageId: string, videoId: string) {
-  pendingMotion.delete(imageId);
-  pendingMotion.set(imageId, videoId);
-  // 只留最近的一部分，Immich 配对完成后就用不上了
-  if (pendingMotion.size > 20_000) pendingMotion.delete(pendingMotion.keys().next().value!);
+  // 只看可能涉及实况的：短视频，以及还没有实况视频的照片
+  const dirs = [...new Set(visible.filter((a) => isShortVideo(a) || (a.type === immich.AssetTypeEnum.Image && !a.livePhotoVideoId)).map((a) => parentDir(a.originalPath)))];
+  const indexes = new Map(await mapLimit(dirs, 6, async (d) => [d, await folderIndex(d).catch(() => null)] as const));
+  const result: Asset[] = [];
+  for (const a of visible) {
+    const index = indexes.get(parentDir(a.originalPath));
+    const stem = stemOf(a.originalPath);
+    if (index && isShortVideo(a) && index.images.has(stem)) continue;
+    const motion = index && a.type === immich.AssetTypeEnum.Image && !a.livePhotoVideoId ? index.motions.get(stem) : undefined;
+    result.push(motion ? { ...a, livePhotoVideoId: motion } : a);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------- 查询
@@ -350,7 +346,6 @@ export function assetHasPerson(assetId: string, personIds: string[]) {
 
 // ---------------------------------------------------------------- 日期问题检测
 
-const parentDir = (path: string) => path.slice(0, path.lastIndexOf('/'));
 const dayDiff = (a: string, b: string) => Math.abs(Date.parse(a.slice(0, 10)) - Date.parse(b.slice(0, 10))) / 86_400_000;
 
 /**
@@ -370,14 +365,38 @@ function dominantDate(assets: Asset[], birthday: string): string | null {
   return [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
 }
 
+/** 一段时间内的所有文件（不限人物，自动翻页） */
+async function searchBefore(date: string, maxPages = 10) {
+  const all: Asset[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const { assets } = await immich.searchAssets({
+      metadataSearchDto: { takenBefore: `${shiftDays(date, 1)}T00:00:00.000Z`, size: 1000, page, visibility: immich.AssetVisibility.Timeline },
+    });
+    all.push(...assets.items);
+    if (!assets.nextPage) break;
+  }
+  return all;
+}
+
+/** 文件夹（含子文件夹）里有没有这个宝宝的照片 */
+function folderHasBaby(baby: Baby, folder: string) {
+  return cached(`folder-baby:${baby.immichPersonId}:${folder}`, 10 * 60_000, async () => {
+    const { assets } = await immich.searchAssets({ metadataSearchDto: { personIds: [baby.immichPersonId], originalPath: `${folder}/`, size: 20 } });
+    return assets.items.some((a) => a.originalPath.startsWith(`${folder}/`));
+  });
+}
+
 /**
- * 找出日期明显错误的照片：照片里有宝宝，日期却在出生之前，一定是错的
- * （常见于影楼相册设计页带着模板的旧日期、相机时钟没调）。
+ * 找出日期明显错误的照片和视频：日期在出生之前，却是宝宝的，一定是错的
+ * （常见于影楼相册设计页带着模板的旧日期、相机时钟没调、视频没有拍摄时间只能用文件时间）。
+ * - 照片：人脸识别出有宝宝
+ * - 视频：人脸常常识别不出来，所以只要它所在的文件夹里有宝宝的照片，就算宝宝的
  * 按文件夹分组，用同文件夹里可信照片最集中的那一天作为建议日期；整个文件夹都不可信时往上找一级。
- * 文件夹里有这类问题时，同文件夹中和建议日期相差很远的照片也一并列出（同一批设计页的日期往往五花八门）。
+ * 文件夹里有这类问题时，同文件夹中和建议日期相差很远的照片、视频也一并列出（同一批文件的日期往往五花八门）。
  */
 export async function dateIssues(baby: Baby) {
   const overrides = dateOverrides.all();
+  const isWrong = (a: Asset) => !overrides.has(a.id) && a.localDateTime.slice(0, 10) < baby.birthday;
   const { assets } = await immich.searchAssets({
     metadataSearchDto: {
       personIds: [baby.immichPersonId],
@@ -386,19 +405,28 @@ export async function dateIssues(baby: Baby) {
       visibility: immich.AssetVisibility.Timeline,
     },
   });
-  const wrong = assets.items.filter((a) => !overrides.has(a.id) && a.localDateTime.slice(0, 10) < baby.birthday);
+  const wrong = new Map(assets.items.filter(isWrong).map((a) => [a.id, a]));
 
-  const folders = [...new Set(wrong.map((a) => parentDir(a.originalPath)))];
+  // 出生前的视频：看所在文件夹里有没有宝宝
+  const videos = (await searchBefore(baby.birthday)).filter((a) => a.type === immich.AssetTypeEnum.Video && isWrong(a) && !wrong.has(a.id));
+  const videoFolders = [...new Set(videos.map((a) => parentDir(a.originalPath)))];
+  const babyFolders = new Set((await mapLimit(videoFolders, 4, async (f) => ((await folderHasBaby(baby, f)) ? f : null))).filter((f) => f !== null));
+  for (const v of videos) if (babyFolders.has(parentDir(v.originalPath))) wrong.set(v.id, v);
+
+  const folders = [...new Set([...wrong.values()].map((a) => parentDir(a.originalPath)))];
   const groups = await mapLimit(folders, 4, async (folder) => {
     const inFolder = (await immich.searchAssets({ metadataSearchDto: { originalPath: `${folder}/`, size: 1000, withPeople: true } })).assets.items.filter(
-      (a) => !overrides.has(a.id),
+      (a) => !overrides.has(a.id) && parentDir(a.originalPath) === folder && a.visibility === immich.AssetVisibility.Timeline,
     );
     let suggested = dominantDate(inFolder, baby.birthday);
     if (!suggested) {
       const parent = (await immich.searchAssets({ metadataSearchDto: { originalPath: `${parentDir(folder)}/`, size: 1000 } })).assets.items;
       suggested = dominantDate(parent.filter((a) => !overrides.has(a.id) && !a.originalPath.startsWith(`${folder}/`)), baby.birthday);
     }
-    const mine = inFolder.filter((a) => (a.people ?? []).some((p) => p.id === baby.immichPersonId) || wrong.some((w) => w.id === a.id));
+    // 这个文件夹里宝宝的：有宝宝的照片、已经判定有问题的，以及视频（同一文件夹里，视频大概率也是宝宝的）
+    const mine = inFolder.filter(
+      (a) => (a.people ?? []).some((p) => p.id === baby.immichPersonId) || wrong.has(a.id) || a.type === immich.AssetTypeEnum.Video,
+    );
     const flagged = mine.filter((a) => {
       const d = a.localDateTime.slice(0, 10);
       if (d < baby.birthday) return true;
@@ -408,7 +436,7 @@ export async function dateIssues(baby: Baby) {
     return {
       folder: folder.split('/').slice(-2).join('/'),
       suggestedDate: suggested,
-      items: flagged.sort(byTakenAt('asc')).map((a) => toItem(baby, a)),
+      items: (await tidy(flagged.sort(byTakenAt('asc')))).map((a) => toItem(baby, a)),
     };
   });
   return groups.filter((g) => g.items.length);

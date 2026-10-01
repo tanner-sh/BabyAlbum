@@ -402,3 +402,8 @@ export type DuplicateAsset = {
 };
 export type DuplicateGroup = { id: string; suggestedKeep: string[]; assets: DuplicateAsset[] };
 export type HiddenAsset = { assetId: string; reason: string; createdAt: string; fileName: string | null; path: string | null; takenAt: string | null };
+
+export type MapPlace = { name: string; region: string; count: number; lat: number; lon: number };
+/** markers：[照片 ID, 纬度, 经度]（GPS 坐标） */
+export type MapData = { tiles: 'osm' | 'amap'; markers: [string, number, number][]; places: MapPlace[] };
+export type AppSettings = { mapTiles: 'osm' | 'amap' };

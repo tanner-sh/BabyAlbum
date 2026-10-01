@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { computeAge, localToday } from '../age.ts';
 import { assetHasPerson, dayItems, growthWall, liveVideoOf, monthItems, onThisDay, review, smartSearch, timeline } from '../album.ts';
 import { dateOverrides, growthRecords, journal, milestones, type Baby } from '../db.ts';
+import { mapData, mapItems } from '../map.ts';
 import { immich, proxyMedia } from '../immich.ts';
 
 export type AlbumContext = {
@@ -150,6 +151,29 @@ export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolv
     }
     if (!ctx.searchAll && !ctx.babies.length) return { page, nextPage: null, items: [] };
     return smartSearch(q, ctx.searchAll ? null : ctx.babies.map((b) => b.immichPersonId), page, 60);
+  });
+
+  // 地图：能看全部照片的用户默认看全部，其他人（包括分享链接）只看有自己能看的宝宝的照片
+  app.get(`${prefix}/map`, async (req, reply) => {
+    const ctx = await resolve(req, reply);
+    if (!ctx) return reply;
+    const { baby: babyId } = z.object({ baby: z.coerce.number().int().optional() }).parse(req.query);
+    if (babyId !== undefined) {
+      const baby = ctx.babies.find((b) => b.id === babyId);
+      if (!baby) return reply.code(404).send({ message: '宝宝不存在' });
+      return mapData([baby]);
+    }
+    return mapData(ctx.searchAll ? null : ctx.babies);
+  });
+
+  // 地图上选中的照片：最多一次 300 张，逐个检查权限
+  app.post(`${prefix}/map/items`, async (req, reply) => {
+    const ctx = await resolve(req, reply);
+    if (!ctx) return reply;
+    const { ids, baby: babyId } = z.object({ ids: z.array(z.uuid()).min(1).max(300), baby: z.number().int().optional() }).parse(req.body);
+    const allowed = (await Promise.all(ids.map(async (id) => ((await ctx.canAccessAsset(id)) ? id : null)))).filter((id) => id !== null);
+    const baby = babyId === undefined ? null : (ctx.babies.find((b) => b.id === babyId) ?? null);
+    return mapItems(allowed, baby);
   });
 
   app.get(`${prefix}/assets/:assetId`, async (req, reply) => {

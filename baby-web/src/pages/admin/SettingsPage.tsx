@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
-import { get, request, type ImmichSettings } from '../../api';
+import { get, request, type AppSettings, type ImmichSettings } from '../../api';
 import { ErrorBox, Spinner, Toggle } from '../../components/ui';
 
 // Immich 的系统设置：只开放常用的几项，用中文说明。保存后立即生效，不需要重启或改 Docker 配置
@@ -59,6 +59,42 @@ function CronPicker({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
+const MAP_TILES: { value: AppSettings['mapTiles']; label: string; hint: string }[] = [
+  { value: 'osm', label: 'OpenStreetMap', hint: '国际通用的开源地图；在国内加载可能慢一些' },
+  { value: 'amap', label: '高德地图', hint: '国内加载快、中文标注。照片的 GPS 坐标会自动换算成高德的坐标系。使用时请遵守高德的服务条款' },
+];
+
+/** 宝宝相册自己的设置（和 Immich 无关），改了马上保存 */
+function AppSettingsSection() {
+  const queryClient = useQueryClient();
+  const app = useQuery({ queryKey: ['admin', 'app-settings'], queryFn: () => get<AppSettings>('/api/admin/app-settings') });
+  const [error, setError] = useState<string | null>(null);
+  if (!app.data) return app.isError ? <ErrorBox error={app.error} /> : null;
+  async function choose(mapTiles: AppSettings['mapTiles']) {
+    setError(null);
+    try {
+      queryClient.setQueryData(['admin', 'app-settings'], await request<AppSettings>('PUT', '/api/admin/app-settings', { mapTiles }));
+      // 地图数据里带着底图设置
+      await queryClient.invalidateQueries({ predicate: (q) => q.queryKey.includes('map') });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失败');
+    }
+  }
+  return (
+    <Section title="地图" hint="“搜索 · 地图”里按拍摄地点看照片时用的底图。改了马上生效。">
+      <div className="role-picker">
+        {MAP_TILES.map((t) => (
+          <button key={t.value} type="button" className={`role-option ${app.data.mapTiles === t.value ? 'selected' : ''}`} onClick={() => choose(t.value)}>
+            <strong>{t.label}</strong>
+            <span className="muted">{t.hint}</span>
+          </button>
+        ))}
+      </div>
+      {error && <div className="error-box">{error}</div>}
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const remote = useQuery({ queryKey: ['admin', 'settings'], queryFn: () => get<ImmichSettings>('/api/admin/immich/settings') });
@@ -90,6 +126,7 @@ export function SettingsPage() {
 
   return (
     <div className="admin-page settings">
+      <AppSettingsSection />
       <Section title="视频" hint="手机和相机拍的视频大多是 HEVC 格式。转码非常耗时间和空间，视频多的话要转好几天。">
         <div className="role-picker">
           {TRANSCODE.map((t) => (

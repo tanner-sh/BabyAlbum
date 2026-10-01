@@ -46,7 +46,8 @@ export function Layout() {
             )}
             <NavLink to="/search">
               <Search size={18} />
-              <span>搜索</span>
+              <span className="wide-only">搜索 · 地图</span>
+              <span className="narrow-only">搜索</span>
             </NavLink>
             <NavLink to="/compare">
               <Columns2 size={18} />

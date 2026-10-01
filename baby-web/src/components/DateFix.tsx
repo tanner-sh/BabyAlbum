@@ -18,14 +18,17 @@ function useAfterDateChange() {
 export function DateIssuesBanner({ baby }: { baby: Baby }) {
   const issues = useDateIssues(baby.id);
   const [open, setOpen] = useState(false);
-  const count = issues.data?.reduce((n, g) => n + g.items.length, 0) ?? 0;
+  const all = issues.data?.flatMap((g) => g.items) ?? [];
+  const count = all.length;
   if (!count) return null;
+  const videos = all.filter((i) => i.type === 'VIDEO').length;
+  const what = videos === 0 ? '张照片' : videos === count ? '个视频' : `个照片和视频（其中视频 ${videos} 个）`;
   return (
     <>
       <button className="notice" onClick={() => setOpen(true)}>
         <TriangleAlert size={18} />
         <span>
-          有 <strong>{count}</strong> 张{baby.name}的照片日期不对（早于出生日期），通常是影楼相册设计页或相机时间没调。点这里更正
+          有 <strong>{count}</strong> {what}的日期不对（早于{baby.name}出生，或者和同一文件夹的其他照片差得很远），通常是影楼相册设计页、相机时间没调，或者视频没有拍摄时间。点这里更正
         </span>
       </button>
       {open && <DateIssuesModal baby={baby} groups={issues.data!} onClose={() => setOpen(false)} />}
@@ -76,7 +79,8 @@ function DateIssuesModal({ baby, groups, onClose }: { baby: Baby; groups: DateIs
       }
     >
       <p className="muted">
-        这些照片里有{baby.name}，日期却在 {formatDate(baby.birthday)} 出生之前，肯定不对。建议日期取自同一文件夹里其他照片最集中的那一天，可以修改。
+        这些照片和视频是{baby.name}的（照片里认出了{baby.name}；视频所在的文件夹里有{baby.name}的照片），日期却在 {formatDate(baby.birthday)}{' '}
+        出生之前，或者和同一文件夹里的其他照片差了一个半月以上。建议日期取自同一文件夹里其他照片最集中的那一天，可以修改。
       </p>
       {error && <ErrorBox error={new Error(error)} />}
       {groups.map((g) => (
@@ -85,7 +89,7 @@ function DateIssuesModal({ baby, groups, onClose }: { baby: Baby; groups: DateIs
             <div>
               <strong>{g.folder}</strong>
               <span className="muted">
-                {g.items.length} 张，原日期：{[...new Set(g.items.map((i) => formatDate(i.takenAt)))].slice(0, 4).join('、')}
+                {g.items.length} 个，原日期：{[...new Set(g.items.map((i) => formatDate(i.takenAt)))].slice(0, 4).join('、')}
                 {new Set(g.items.map((i) => i.takenAt.slice(0, 10))).size > 4 ? ' 等' : ''}
               </span>
             </div>
@@ -98,7 +102,7 @@ function DateIssuesModal({ baby, groups, onClose }: { baby: Baby; groups: DateIs
                 aria-label="更正为"
               />
               <button className="btn" disabled={busy || !dates[g.folder]} onClick={() => fix([g])}>
-                更正这 {g.items.length} 张
+                更正这 {g.items.length} 个
               </button>
             </div>
           </header>

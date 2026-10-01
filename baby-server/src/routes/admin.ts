@@ -10,6 +10,7 @@ import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, use
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
 import { importProgress } from '../import-progress.ts';
+import { mapTiles } from '../map.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
 import { connectWithCredentials, immichConnected, immichStatus, MULTILINGUAL_CLIP_MODEL } from '../immich-link.ts';
 import { immich } from '../immich.ts';
@@ -321,6 +322,15 @@ export async function adminRoutes(app: FastifyInstance) {
     // 不能马上用 force：force 也会去改维度，和 Immich 自己的处理撞在一起会导致数据库死锁
     if (patch.clipModel && patch.clipModel !== previousModel) void requeueSmartSearch(req.log);
     return toCurated(updated);
+  });
+
+  // ---- 宝宝相册自己的设置（不是 Immich 的）
+  app.get('/api/admin/app-settings', async () => ({ mapTiles: mapTiles() }));
+
+  app.put('/api/admin/app-settings', async (req) => {
+    const body = z.object({ mapTiles: z.enum(['osm', 'amap']).optional() }).parse(req.body);
+    if (body.mapTiles) settings.set('map.tiles', body.mapTiles);
+    return { mapTiles: mapTiles() };
   });
 
   // ---- 导入进度（照片、视频各剩多少，预计还要多久）
