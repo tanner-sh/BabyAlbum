@@ -1762,6 +1762,12 @@ select {
   border-color: var(--accent);
 }
 
+.person-editor + .face-strip {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
 .face-strip + .face-strip {
   margin-top: 20px;
   padding-top: 16px;
@@ -1782,6 +1788,7 @@ select {
 }
 
 .face-crop {
+  display: block;
   aspect-ratio: 1;
   border-radius: var(--radius-sm);
   background-color: var(--surface-2);

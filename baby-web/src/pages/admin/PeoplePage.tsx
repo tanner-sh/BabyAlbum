@@ -141,7 +141,9 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
           </div>
         </div>
 
-        <div className="merge-section">
+        <FaceStrip person={person} title="TA 的照片" size={8} hideAvatar />
+
+      <div className="merge-section">
           <h3>
             <Merge size={16} /> 合并到这个人物
           </h3>
@@ -236,7 +238,7 @@ function CompareModal({
   );
 }
 
-function FaceStrip({ person, title, size }: { person: AdminPerson; title: string; size: number }) {
+function FaceStrip({ person, title, size, hideAvatar }: { person: AdminPerson; title: string; size: number; hideAvatar?: boolean }) {
   const faces = useQuery({
     queryKey: ['admin', 'people', 'faces', person.id, size],
     queryFn: () => get<PersonFace[]>(`/api/admin/people/${person.id}/faces?size=${size}`),
@@ -245,7 +247,7 @@ function FaceStrip({ person, title, size }: { person: AdminPerson; title: string
   return (
     <section className="face-strip">
       <div className="face-strip-head">
-        <Avatar baby={{ name: title, thumbnailUrl: person.thumbnailUrl }} size={32} />
+        {!hideAvatar && <Avatar baby={{ name: title, thumbnailUrl: person.thumbnailUrl }} size={32} />}
         <strong>{title}</strong>
         <span className="muted">{person.assets.toLocaleString()} 张</span>
         <span className="spacer" />
@@ -273,8 +275,8 @@ function FaceStrip({ person, title, size }: { person: AdminPerson; title: string
 /** 从照片里裁出这个人的脸（留一些边，能看到发型和脸型）；找不到脸的位置就显示整张照片 */
 function FaceCrop({ face }: { face: PersonFace }) {
   const url = `/api/assets/${face.assetId}/thumbnail?size=preview`;
-  const title = new Date(face.takenAt).toLocaleDateString('zh-CN');
-  if (!face.box) return <div className="face-crop" title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
+  const title = `${new Date(face.takenAt).toLocaleDateString('zh-CN')}，点开看整张照片`;
+  if (!face.box) return <a className="face-crop" href={url} target="_blank" rel="noreferrer" title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
   const { x, y, w, h, ratio } = face.box;
   // 以照片高度为 1，宽度为 ratio；取一个包住脸、放大 1.8 倍的正方形，不超出照片
   const side = Math.min(Math.max(w * ratio, h) * 1.8, ratio, 1);
@@ -284,8 +286,11 @@ function FaceCrop({ face }: { face: PersonFace }) {
   const top = Math.min(Math.max(y + h / 2 - sh / 2, 0), 1 - sh);
   const pos = (start: number, span: number) => (span >= 1 ? 0 : (start / (1 - span)) * 100);
   return (
-    <div
+    <a
       className="face-crop"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
       title={title}
       style={{
         backgroundImage: `url(${url})`,
