@@ -69,7 +69,10 @@ const shareView = ({ passwordHash, ...s }: Share) => ({ ...s, hasPassword: !!pas
 // ---------------------------------------------------------------- 按用户过滤
 
 export const visibleBabies = (user: User) => babies.list().filter((b) => canSeeBaby(user, b.id));
-const unrestricted = (user: User) => user.role === 'admin' || user.babyIds === null;
+export const unrestricted = (user: User) => user.role === 'admin' || user.babyIds === null;
+
+/** 改、删、分享相册：只能看部分宝宝的家人只能动自己建的相册（别人的相册里可能有 TA 看不到的照片） */
+export const canManageAlbum = (user: User, album: { createdBy: number | null } | undefined) => !!album && (unrestricted(user) || album.createdBy === user.id);
 
 /** 受限用户只能访问有自己能看的宝宝出现的照片 */
 export function canAccessAsset(user: User, assetId: string) {
@@ -248,9 +251,11 @@ export async function manageRoutes(app: FastifyInstance) {
   });
 
   // ---------- 家人分享链接（家人只能分享、管理自己能看的宝宝）
-  const shareVisible = (user: User, babyIds: number[]) => babyIds.every((id) => canSeeBaby(user, id));
+  // 相册的分享：只能看部分宝宝的家人只能管自己建的相册的分享
+  const shareVisible = (user: User, share: Pick<Share, 'babyIds' | 'albumId'>) =>
+    share.albumId !== null ? canManageAlbum(user, albums.get(share.albumId)) : share.babyIds.every((id) => canSeeBaby(user, id));
 
-  app.get('/api/shares', { preHandler: editors }, async (req) => shares.list().filter((s) => shareVisible(req.user!, s.babyIds)).map(shareView));
+  app.get('/api/shares', { preHandler: editors }, async (req) => shares.list().filter((s) => shareVisible(req.user!, s)).map(shareView));
 
   const shareOptions = async (body: z.infer<typeof shareBody>, previousHash: string | null) => ({
     label: body.label,
@@ -263,9 +268,17 @@ export async function manageRoutes(app: FastifyInstance) {
     allowComments: body.allowComments,
   });
 
-  /** 分享的内容是否有效：宝宝要是自己能看的，相册要存在 */
-  const shareTargetError = (user: User, body: z.infer<typeof shareBody>) => {
-    if (body.albumId !== null) return albums.get(body.albumId) ? null : '相册不存在';
+  /** 分享的内容是否有效：宝宝要是自己能看的；相册要存在，而且相册里的照片自己都能看（分享出去别人就都能看到了） */
+  const shareTargetError = async (user: User, body: z.infer<typeof shareBody>) => {
+    if (body.albumId !== null) {
+      const album = albums.get(body.albumId);
+      if (!album) return '相册不存在';
+      if (!canManageAlbum(user, album)) return '只能分享自己建的相册';
+      if (!unrestricted(user)) {
+        for (const id of albums.assetIds(album.id)) if (!(await canAccessAsset(user, id))) return '相册里有你看不到的照片，不能分享';
+      }
+      return null;
+    }
     if (!body.babyIds.length) return '请选择要分享的宝宝';
     const allowed = new Set(visibleBabies(user).map((b) => b.id));
     return body.babyIds.every((id) => allowed.has(id)) ? null : '宝宝不存在';
@@ -273,7 +286,7 @@ export async function manageRoutes(app: FastifyInstance) {
 
   app.post('/api/shares', { preHandler: editors }, async (req, reply) => {
     const body = shareBody.parse(req.body);
-    const error = shareTargetError(req.user!, body);
+    const error = await shareTargetError(req.user!, body);
     if (error) return reply.code(400).send({ message: error });
     const share = shares.create({ token: newToken(), ...(await shareOptions({ ...body, babyIds: body.albumId !== null ? [] : body.babyIds }, null)) });
     return reply.code(201).send(shareView(share));
@@ -283,9 +296,9 @@ export async function manageRoutes(app: FastifyInstance) {
   app.put('/api/shares/:id', { preHandler: editors }, async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const current = shares.get(id);
-    if (!current || !shareVisible(req.user!, current.babyIds)) return reply.code(404).send({ message: '分享不存在' });
+    if (!current || !shareVisible(req.user!, current)) return reply.code(404).send({ message: '分享不存在' });
     const body = shareBody.parse(req.body);
-    const error = shareTargetError(req.user!, body);
+    const error = await shareTargetError(req.user!, body);
     if (error) return reply.code(400).send({ message: error });
     return shareView(shares.update(id, await shareOptions({ ...body, babyIds: body.albumId !== null ? [] : body.babyIds }, current.passwordHash))!);
   });
@@ -293,7 +306,7 @@ export async function manageRoutes(app: FastifyInstance) {
   app.delete('/api/shares/:id', { preHandler: editors }, async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const share = shares.get(id);
-    if (!share || !shareVisible(req.user!, share.babyIds)) return reply.code(404).send({ message: '分享不存在' });
+    if (!share || !shareVisible(req.user!, share)) return reply.code(404).send({ message: '分享不存在' });
     shares.remove(id);
     return reply.code(204).send();
   });

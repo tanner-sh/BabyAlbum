@@ -6,15 +6,25 @@ import { immich } from './immich.ts';
 
 type Asset = immich.AssetResponseDto;
 
+/**
+ * 全部人物（翻页取完；人脸识别会不断拆出新人物，几百上千个很常见，只取第一页会漏掉）。
+ * Immich 的顺序：已命名的在前，其余按照片数从多到少
+ */
+export async function allPeople(withHidden: boolean) {
+  const people: immich.PersonResponseDto[] = [];
+  for (let page = 1; page <= 40; page++) {
+    const res = await immich.getAllPeople({ withHidden, page, size: 500 });
+    people.push(...res.people);
+    if (!res.hasNextPage) break;
+  }
+  return people;
+}
+
 /** 已命名、没隐藏的人物（宝宝和家人） */
 export function namedPeople() {
   return cachedPhotos('people:named', 5 * 60_000, async () => {
     const named = new Map<string, { id: string; name: string }>();
-    for (let page = 1; page <= 20; page++) {
-      const res = await immich.getAllPeople({ withHidden: false, page, size: 500 });
-      for (const p of res.people) if (p.name && !p.isHidden) named.set(p.id, { id: p.id, name: p.name });
-      if (!res.hasNextPage) break;
-    }
+    for (const p of await allPeople(false)) if (p.name && !p.isHidden) named.set(p.id, { id: p.id, name: p.name });
     return named;
   });
 }
@@ -84,7 +94,8 @@ export async function unnamedPeople(limit = 12) {
   const babies = babiesDb.list();
   const babyIds = new Set(babies.map((b) => b.immichPersonId));
   const skip = skipped();
-  const { people } = await immich.getAllPeople({ withHidden: false, page: 1, size: 200 });
+  const people = await allPeople(false);
+  // 照片最多的 40 个没命名的人物里，找常和宝宝同框的
   const candidates = people.filter((p) => !p.name && !babyIds.has(p.id) && !skip.has(p.id)).slice(0, 40);
   const stats = await Promise.all(
     candidates.map(async (p) => {

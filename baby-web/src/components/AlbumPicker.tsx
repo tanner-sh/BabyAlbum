@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { BookImage, CheckSquare, Plus, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { request, thumbUrl, useAlbum, useAlbums, type PhotoAlbum } from '../api';
+import { canManageAlbum, request, thumbUrl, useAlbum, useAlbums, useMe, type PhotoAlbum } from '../api';
 import { ErrorBox, Modal, Spinner, toast } from './ui';
 
 /** 选一个相册，把照片加进去（也可以当场新建一个） */
@@ -9,6 +9,9 @@ export function AlbumPicker({ assetIds, onClose, onDone }: { assetIds: string[];
   const album = useAlbum();
   const queryClient = useQueryClient();
   const albums = useAlbums();
+  const me = useMe();
+  // 只能看部分宝宝的家人只能往自己建的相册里加
+  const choices = (albums.data ?? []).filter((a) => me.data && canManageAlbum(me.data, a));
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,7 +75,7 @@ export function AlbumPicker({ assetIds, onClose, onDone }: { assetIds: string[];
           <ErrorBox error={albums.error} />
         ) : (
           <ul className="album-pick">
-            {albums.data.map((a) => (
+            {choices.map((a) => (
               <li key={a.id}>
                 <button disabled={busy} onClick={() => addTo(a)}>
                   {a.coverAssetId ? <img src={thumbUrl(album, a.coverAssetId)} alt="" loading="lazy" /> : <span className="album-pick-empty"><BookImage size={20} /></span>}

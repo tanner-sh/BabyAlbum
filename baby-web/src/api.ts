@@ -310,6 +310,9 @@ export function useSetupStatus() {
 export const canEdit = (me: Me | undefined) => me?.role === 'admin' || me?.role === 'member';
 
 /** 能否看“全部照片”（包括没有宝宝的）：管理员，以及能看所有宝宝的家人 */
+/** 改、删、分享相册：只能看部分宝宝的家人只能动自己建的相册 */
+export const canManageAlbum = (me: Me, album: { createdBy: number | null }) => canEdit(me) && (me.role === 'admin' || me.babyIds === null || album.createdBy === me.id);
+
 export const canSeeAllPhotos = (me: Me | undefined) => me?.role === 'admin' || (me?.role === 'member' && me.babyIds === null);
 
 export type PhotosPage = { page: number; nextPage: number | null; groups: { label: string; items: AlbumItem[] }[] };

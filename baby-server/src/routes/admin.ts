@@ -10,7 +10,7 @@ import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, use
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
 import { importProgress } from '../import-progress.ts';
-import { skipPerson, unnamedPeople, unskipPerson } from '../family.ts';
+import { allPeople, skipPerson, unnamedPeople, unskipPerson } from '../family.ts';
 import { healthReport, runHealthChecks } from '../health.ts';
 import { MAP_TILES, mapTiles, tiandituKey } from '../map.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
@@ -591,12 +591,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/people', async (req) => {
     // z.coerce.boolean() 会把字符串 "false" 也当成 true，要用 stringbool
     const { hidden } = z.object({ hidden: z.stringbool().default(false) }).parse(req.query);
-    const people: immich.PersonResponseDto[] = [];
-    for (let page = 1; page <= 20; page++) {
-      const res = await immich.getAllPeople({ withHidden: hidden, page, size: 500 });
-      people.push(...res.people);
-      if (!res.hasNextPage) break;
-    }
+    const people = await allPeople(hidden);
     const linked = new Map(babies.list().map((b) => [b.immichPersonId, b]));
     const counts = await mapLimit(people, 8, (p) => immich.getPersonStatistics({ id: p.id }).then((s) => s.assets).catch(() => 0));
     return people
@@ -616,7 +611,7 @@ export async function adminRoutes(app: FastifyInstance) {
   const dismissedPeople = () => new Set<string>(JSON.parse(settings.get('people.dismissed') ?? '[]'));
 
   app.get('/api/admin/people/suggestion', async () => {
-    const { people } = await immich.getAllPeople({ withHidden: false, page: 1, size: 100 });
+    const people = await allPeople(false);
     const linked = new Set(babies.list().map((b) => b.immichPersonId));
     const dismissed = dismissedPeople();
     const candidates = people.filter((p) => !p.name && !linked.has(p.id) && !dismissed.has(p.id)).slice(0, 30);
@@ -642,9 +637,10 @@ export async function adminRoutes(app: FastifyInstance) {
    */
   app.get('/api/admin/people/:id/similar', async (req) => {
     const { id } = uuidParams.parse(req.params);
-    const { people } = await immich.getAllPeople({ withHidden: false, page: 1, size: 80 });
+    // 所有人物都要看：宝宝小时候被拆出来的人物往往照片很少，排在很后面
+    const people = await allPeople(false);
     const otherBabies = new Set(babies.list().filter((b) => b.immichPersonId !== id).map((b) => b.immichPersonId));
-    const candidates = people.filter((p) => p.id !== id && !otherBabies.has(p.id)).slice(0, 40);
+    const candidates = people.filter((p) => p.id !== id && !otherBabies.has(p.id));
     const result = await mapLimit(candidates, 6, async (p) => {
       const [together, stats] = await Promise.all([
         immich.searchAssetStatistics({ statisticsSearchDto: { personIds: [id, p.id] } }).then((r) => r.total),

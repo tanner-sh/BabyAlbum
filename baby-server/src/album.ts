@@ -402,18 +402,19 @@ function dominantDate(assets: Asset[], birthday: string): string | null {
   return [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
 }
 
-/** 一段时间内的所有文件（不限人物，自动翻页） */
-async function searchBefore(date: string, maxPages = 10) {
+/** 按条件查出全部文件（自动翻页；只取一页的话，文件多的家庭会漏掉） */
+async function searchEvery(metadataSearchDto: immich.MetadataSearchDto, maxPages = 100) {
   const all: Asset[] = [];
   for (let page = 1; page <= maxPages; page++) {
-    const { assets } = await immich.searchAssets({
-      metadataSearchDto: { takenBefore: `${shiftDays(date, 1)}T00:00:00.000Z`, size: 1000, page, visibility: immich.AssetVisibility.Timeline },
-    });
+    const { assets } = await immich.searchAssets({ metadataSearchDto: { ...metadataSearchDto, size: 1000, page } });
     all.push(...assets.items);
     if (!assets.nextPage) break;
   }
   return all;
 }
+
+/** 这一天及之前的所有文件（不限人物） */
+const searchBefore = (date: string) => searchEvery({ takenBefore: `${shiftDays(date, 1)}T00:00:00.000Z`, visibility: immich.AssetVisibility.Timeline });
 
 /** 文件夹（含子文件夹）里有没有这个宝宝的照片 */
 function folderHasBaby(baby: Baby, folder: string) {
@@ -435,15 +436,8 @@ function folderHasBaby(baby: Baby, folder: string) {
 export async function dateIssues(baby: Baby) {
   const overrides = dateOverrides.all();
   const isWrong = (a: Asset) => !overrides.has(a.id) && a.localDateTime.slice(0, 10) < baby.birthday;
-  const { assets } = await immich.searchAssets({
-    metadataSearchDto: {
-      personIds: [baby.immichPersonId],
-      takenBefore: `${shiftDays(baby.birthday, 1)}T00:00:00.000Z`,
-      size: 1000,
-      visibility: immich.AssetVisibility.Timeline,
-    },
-  });
-  const wrong = new Map(assets.items.filter(isWrong).map((a) => [a.id, a]));
+  const before = await searchEvery({ personIds: [baby.immichPersonId], takenBefore: `${shiftDays(baby.birthday, 1)}T00:00:00.000Z`, visibility: immich.AssetVisibility.Timeline });
+  const wrong = new Map(before.filter(isWrong).map((a) => [a.id, a]));
 
   // 出生前的视频：看所在文件夹里有没有宝宝
   const videos = (await searchBefore(baby.birthday)).filter((a) => a.type === immich.AssetTypeEnum.Video && isWrong(a) && !wrong.has(a.id));
@@ -453,12 +447,12 @@ export async function dateIssues(baby: Baby) {
 
   const folders = [...new Set([...wrong.values()].map((a) => parentDir(a.originalPath)))];
   const groups = await mapLimit(folders, 4, async (folder) => {
-    const inFolder = (await immich.searchAssets({ metadataSearchDto: { originalPath: `${folder}/`, size: 1000, withPeople: true } })).assets.items.filter(
+    const inFolder = (await searchEvery({ originalPath: `${folder}/`, withPeople: true }, 20)).filter(
       (a) => !overrides.has(a.id) && parentDir(a.originalPath) === folder && a.visibility === immich.AssetVisibility.Timeline,
     );
     let suggested = dominantDate(inFolder, baby.birthday);
     if (!suggested) {
-      const parent = (await immich.searchAssets({ metadataSearchDto: { originalPath: `${parentDir(folder)}/`, size: 1000 } })).assets.items;
+      const parent = await searchEvery({ originalPath: `${parentDir(folder)}/` }, 20);
       suggested = dominantDate(parent.filter((a) => !overrides.has(a.id) && !a.originalPath.startsWith(`${folder}/`)), baby.birthday);
     }
     // 这个文件夹里宝宝的：有宝宝的照片、已经判定有问题的，以及视频（同一文件夹里，视频大概率也是宝宝的）

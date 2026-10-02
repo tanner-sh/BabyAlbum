@@ -216,12 +216,61 @@ if (other) {
   check('受限成员不能搜别的宝宝', r.status === 404, r.status);
 }
 
+// 受限家人（只能看一个宝宝）：只能改、删、分享自己建的相册；看不到的相册不出现
+const inv2 = (await admin.req('POST', '/api/admin/invites', { role: 'member', babyIds: [baby.id] })).data;
+const member = new Client();
+const mname = `m${Date.now() % 100000}`;
+r = await member.req('POST', '/api/auth/register', { token: inv2.token, username: mname, displayName: '测试受限家人', password: 'password123' });
+check('受限家人注册', r.status === 200 || r.status === 201, r);
+if (other) {
+  // 管理员建一个相册，只放别的宝宝的、受限家人看不到的照片
+  const otherItems = ((await admin.req('GET', `/api/babies/${other.id}/timeline?size=50`)).data.groups as any[]).flatMap((g) => g.items);
+  let hiddenFromMember: string | undefined;
+  for (const it of otherItems) if ((await member.req('GET', `/api/assets/${it.id}`)).status === 404) { hiddenFromMember = it.id; break; }
+  if (hiddenFromMember) {
+    const a1 = (await admin.req('POST', '/api/albums', { title: '只有别的宝宝' })).data;
+    await admin.req('POST', `/api/albums/${a1.id}/assets`, { assetIds: [hiddenFromMember] });
+    const adminShare = (await admin.req('POST', '/api/shares', { label: '相册分享', babyIds: [], albumId: a1.id })).data;
+    const list = (await member.req('GET', '/api/albums')).data as any[];
+    check('受限家人：看不到的相册不出现在列表里', !list.some((a) => a.id === a1.id), list.map((a) => a.title));
+    r = await member.req('GET', `/api/albums/${a1.id}`);
+    check('受限家人：打不开看不到的相册', r.status === 404, r.status);
+    r = await member.req('PUT', `/api/albums/${a1.id}`, { title: '改个名' });
+    check('受限家人：不能改别人的相册', r.status === 403, r.status);
+    r = await member.req('DELETE', `/api/albums/${a1.id}`);
+    check('受限家人：不能删别人的相册', r.status === 403, r.status);
+    r = await member.req('POST', '/api/shares', { label: '偷偷分享', babyIds: [], albumId: a1.id });
+    check('受限家人：不能分享别人的相册', r.status === 400, r);
+    const memberShares = (await member.req('GET', '/api/shares')).data as any[];
+    check('受限家人：看不到别人相册的分享链接', !memberShares.some((x) => x.id === adminShare.id));
+    r = await member.req('DELETE', `/api/shares/${adminShare.id}`);
+    check('受限家人：不能停用别人相册的分享链接', r.status === 404, r.status);
+    // 自己建的相册，放自己能看的照片：可以改、可以分享
+    const mine = ((await member.req('GET', `/api/babies/${baby.id}/timeline?size=5`)).data.groups as any[]).flatMap((g) => g.items)[0];
+    const a2 = (await member.req('POST', '/api/albums', { title: '我的相册' })).data;
+    r = await member.req('POST', `/api/albums/${a2.id}/assets`, { assetIds: [mine.id] });
+    check('受限家人：往自己的相册里加照片', r.status === 200, r);
+    r = await member.req('POST', '/api/shares', { label: '我的分享', babyIds: [], albumId: a2.id });
+    check('受限家人：可以分享自己的相册', r.status === 201, r);
+    if (r.status === 201) await member.req('DELETE', `/api/shares/${r.data.id}`);
+    // 管理员往受限家人的相册里加了 TA 看不到的照片：这时 TA 不能再分享
+    await admin.req('POST', `/api/albums/${a2.id}/assets`, { assetIds: [hiddenFromMember] });
+    r = await member.req('POST', '/api/shares', { label: '我的分享', babyIds: [], albumId: a2.id });
+    check('受限家人：相册里有看不到的照片时不能分享', r.status === 400, r);
+    await admin.req('DELETE', `/api/shares/${adminShare.id}`);
+    await admin.req('DELETE', `/api/albums/${a1.id}`);
+    await admin.req('DELETE', `/api/albums/${a2.id}`);
+  } else console.log('- 别的宝宝的照片受限家人都能看到，跳过相册权限检查');
+}
+
 // 清理
 await admin.req('DELETE', `/api/journal/${j1.id}`);
 await admin.req('DELETE', `/api/measurements/${m1.id}`);
 const users = (await admin.req('GET', '/api/admin/users')).data;
 const vu = users.find((u: any) => u.username === vname);
 if (vu) await admin.req('DELETE', `/api/admin/users/${vu.id}`);
+const mu = users.find((u: any) => u.username === mname);
+if (mu) await admin.req('DELETE', `/api/admin/users/${mu.id}`);
 
 console.log(`\n通过 ${passed}，失败 ${failed}`);
 process.exit(failed ? 1 : 0);

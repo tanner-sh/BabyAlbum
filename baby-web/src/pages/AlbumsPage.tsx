@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { BookImage, ImagePlus, Pencil, Play, Plus, Share2, Star, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router';
-import { canEdit, request, thumbUrl, useAlbum, useAlbumDetail, useAlbums, type Me, type PhotoAlbum } from '../api';
+import { canEdit, canManageAlbum, request, thumbUrl, useAlbum, useAlbumDetail, useAlbums, type Me, type PhotoAlbum } from '../api';
 import { Lightbox } from '../components/Lightbox';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { useSelection } from '../components/AlbumPicker';
@@ -122,12 +122,12 @@ export function AlbumPage() {
   const [editing, setEditing] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const editable = canEdit(me);
   const [ask, confirmDialog] = useConfirm();
 
   if (detail.isPending) return <Spinner />;
   if (detail.isError) return <ErrorBox error={detail.error} />;
   const { album, items } = detail.data;
+  const editable = canManageAlbum(me, album);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['/api', 'albums'] });
 
   function removeSelected() {
