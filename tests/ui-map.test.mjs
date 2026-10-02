@@ -57,6 +57,8 @@ await page.evaluate(() => document.querySelector('.map-selection .thumb').click(
 await page.waitForSelector('.lightbox');
 check('从地图打开大图', true);
 await page.keyboard.press('Escape');
+// 关掉弹窗、大图时会退掉一条浏览器历史，等它退完再整页跳转，不然跳转会被打断
+await sleep(300);
 
 // 只看某个宝宝
 await page.goto(`${BASE}/search?mode=map&baby=2`, { waitUntil: 'networkidle0' });
@@ -104,6 +106,8 @@ if (liveThumb) {
   });
   check('实况视频播放时和照片一样大', !!sizes.live && sizes.live === sizes.img, sizes);
   await page.keyboard.press('Escape');
+  // 关掉弹窗、大图时会退掉一条浏览器历史，等它退完再整页跳转，不然跳转会被打断
+  await sleep(300);
   await page.setViewport({ width: 1280, height: 900 });
 }
 

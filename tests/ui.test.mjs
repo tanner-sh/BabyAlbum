@@ -183,6 +183,8 @@ async function login(page) {
   check('登录用户在“更多”里能下载原图', (await page.$$eval('.menu > *', (els) => els.map((e) => e.textContent.trim()))).includes('下载原图'));
   await page.click('button[aria-label=更多]');
   await page.keyboard.press('Escape');
+  // 关掉弹窗、大图时会退掉一条浏览器历史，等它退完再整页跳转，不然跳转会被打断
+  await sleep(300);
 
   // ---- 分享：密码、长辈模式、不允许下载
   await page.goto(`${BASE}/shares`, { waitUntil: 'networkidle0' });

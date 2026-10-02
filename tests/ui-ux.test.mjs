@@ -192,6 +192,8 @@ check('确认框里按 Esc 只关确认框', !(await page.$('.modal')) && !!(awa
 await page.evaluate(() => [...document.querySelectorAll('.lightbox .comments li')].find((li) => li.innerText.includes('时间测试')).querySelector('button[aria-label=删除留言]').click());
 await page.waitForSelector('.modal .btn-danger');
 await page.click('.modal .btn-danger');
+// 关掉弹窗、大图时会退掉一条浏览器历史，等它退完再整页跳转，不然跳转会被打断
+await sleep(300);
 await page.waitForFunction((n) => document.querySelectorAll('.lightbox .comments li').length < n, { timeout: 10000 }, before).catch(() => {});
 check('确认后删掉了', (await page.$$eval('.lightbox .comments li', (l) => l.length)) === before - 1);
 
