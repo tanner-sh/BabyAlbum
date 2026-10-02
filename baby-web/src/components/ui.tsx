@@ -1,5 +1,5 @@
 import { Check, Copy, X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { type Baby } from '../api';
 
 export function Spinner({ label = '加载中…' }: { label?: string }) {
@@ -34,6 +34,8 @@ export function Avatar({ baby, size = 56 }: { baby: Pick<Baby, 'name' | 'thumbna
   );
 }
 
+const openModals: object[] = [];
+
 export function Modal({
   title,
   onClose,
@@ -47,15 +49,23 @@ export function Modal({
   footer?: ReactNode;
   wide?: boolean;
 }) {
+  const closeRef = useRef(onClose);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    // 弹窗可以叠起来（比如人物里再点开对比照片），Esc 只关最上面那个
+    const token = {};
+    openModals.push(token);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openModals.at(-1) === token && closeRef.current();
     window.addEventListener('keydown', onKey);
     document.body.classList.add('no-scroll');
     return () => {
       window.removeEventListener('keydown', onKey);
-      document.body.classList.remove('no-scroll');
+      openModals.splice(openModals.indexOf(token), 1);
+      if (!openModals.length) document.body.classList.remove('no-scroll');
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

@@ -407,6 +407,8 @@ export type ImportProgress = {
 };
 export type PersonSuggestion = { id: string; assets: number; thumbnailUrl: string } | null;
 export type SimilarPerson = { id: string; name: string; assets: number; together: number; thumbnailUrl: string };
+/** 人物在一张照片里的脸：box 是相对整张照片的比例，ratio 是照片宽高比 */
+export type PersonFace = { assetId: string; takenAt: string; box: { x: number; y: number; w: number; h: number; ratio: number } | null };
 export type DuplicateAsset = {
   id: string;
   type: AlbumItem['type'];

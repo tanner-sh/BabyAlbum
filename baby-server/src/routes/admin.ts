@@ -655,6 +655,27 @@ export async function adminRoutes(app: FastifyInstance) {
     return result.filter((p) => p.assets > 0 && p.together <= Math.max(1, p.assets * 0.01)).sort((a, b) => b.assets - a.assets);
   });
 
+  /** 随机取这个人物的几张照片和 TA 的脸在照片里的位置（比例），合并前对比长相用 */
+  app.get('/api/admin/people/:id/faces', async (req) => {
+    const { id } = uuidParams.parse(req.params);
+    const { size } = z.object({ size: z.coerce.number().int().min(1).max(24).default(12) }).parse(req.query);
+    const assets = await immich.searchRandom({ randomSearchDto: { personIds: [id], size, type: immich.AssetTypeEnum.Image } });
+    return mapLimit(assets, 6, async (a) => {
+      const faces = await immich.getFaces({ id: a.id }).catch(() => []);
+      const f = faces.find((x) => x.person?.id === id);
+      const box = f
+        ? {
+            x: f.boundingBoxX1 / f.imageWidth,
+            y: f.boundingBoxY1 / f.imageHeight,
+            w: (f.boundingBoxX2 - f.boundingBoxX1) / f.imageWidth,
+            h: (f.boundingBoxY2 - f.boundingBoxY1) / f.imageHeight,
+            ratio: f.imageWidth / f.imageHeight,
+          }
+        : null;
+      return { assetId: a.id, takenAt: a.localDateTime, box };
+    });
+  });
+
   // ---- 认识家里人：还没命名、经常和宝宝同框的人物
   app.get('/api/admin/people/unnamed', async () => unnamedPeople());
 
