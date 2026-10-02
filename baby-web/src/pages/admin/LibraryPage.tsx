@@ -361,9 +361,12 @@ function QueueSection({ queues }: { queues: Queue[] }) {
                   <Play size={14} /> 继续
                 </button>
               ) : (
-                <button className="btn btn-small" disabled={running === q.name || q.active + q.waiting === 0} onClick={() => run(q, 'pause')}>
-                  <Pause size={14} /> 暂停
-                </button>
+                // 空闲的不显示“暂停”，免得满屏灰按钮
+                q.active + q.waiting > 0 && (
+                  <button className="btn btn-small" disabled={running === q.name} onClick={() => run(q, 'pause')}>
+                    <Pause size={14} /> 暂停
+                  </button>
+                )
               )}
               <button className="btn btn-small" disabled={running === q.name} onClick={() => run(q, 'start')} title="处理还没处理过的文件">
                 <RefreshCw size={14} /> 补跑

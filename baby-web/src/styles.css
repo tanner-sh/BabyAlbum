@@ -4070,3 +4070,34 @@ details.account-section[open] summary {
 .family-card > .btn-small {
   align-self: center;
 }
+
+/* 手机：“跳到”“选择”放上面一行；家人一行排开、左右滑动，不竖着堆成一长列 */
+@media (max-width: 600px) {
+  .timeline-tools {
+    flex-wrap: wrap;
+    gap: 0;
+  }
+
+  .timeline-buttons {
+    order: -1;
+    margin: 0 0 8px auto;
+  }
+
+  .timeline-tools .companions {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-top: 0;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .timeline-tools .companions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .timeline-tools .companions > * {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}

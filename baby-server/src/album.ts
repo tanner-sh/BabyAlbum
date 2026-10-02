@@ -173,12 +173,30 @@ async function tidy(assets: Asset[]): Promise<Asset[]> {
  * Immich 的 takenAfter/takenBefore 按 UTC 时刻比较，而这里按拍摄地的本地日期划分，
  * 所以前后各放宽一天，再按 localDateTime 精确过滤。
  */
-async function searchRange(
-  baby: Baby,
-  from: string,
-  to: string,
-  opts: { size?: number; page?: number; isFavorite?: boolean; order?: immich.AssetOrder; withPeople?: boolean } = {},
-) {
+type RangeOpts = { size?: number; page?: number; isFavorite?: boolean; order?: immich.AssetOrder; withPeople?: boolean };
+
+/**
+ * [from, to) 这段当地日期里有宝宝的照片，最多 size 张。
+ * 为了不受时区影响，向 Immich 查的范围前后各放宽了一天，放宽出来的照片要去掉；
+ * 前一天照片很多时，第一页可能全是前一天的，所以要接着往后翻，直到凑够或者没有了
+ */
+async function searchRange(baby: Baby, from: string, to: string, opts: Omit<RangeOpts, 'page'> = {}) {
+  const want = opts.size ?? 1000;
+  const all: Asset[] = [];
+  let hasMore = false;
+  for (let page = 1; page <= 20; page++) {
+    const items = await searchRangePage(baby, from, to, { ...opts, size: want, page });
+    all.push(...items);
+    hasMore = items.hasMore;
+    if (!hasMore || new Set(all.map((a) => a.id)).size >= want) break;
+  }
+  // 日期更正过的照片每一页都会带上，去重
+  const unique = [...new Map(all.map((a) => [a.id, a])).values()].sort(byTakenAt(opts.order === immich.AssetOrder.Desc ? 'desc' : 'asc'));
+  return Object.assign(unique.slice(0, want), { hasMore: hasMore || unique.length > want });
+}
+
+/** searchRange 的一页（Immich 的一页，放宽出来的照片去掉后可能不满一页） */
+async function searchRangePage(baby: Baby, from: string, to: string, opts: RangeOpts = {}) {
   const overrides = dateOverrides.all();
   const { assets } = await immich.searchAssets({
     metadataSearchDto: {
@@ -210,7 +228,7 @@ async function searchRange(
 async function searchAll(baby: Baby, from: string, to: string, opts: { withPeople?: boolean } = {}) {
   const all: Asset[] = [];
   for (let page = 1; page <= 30; page++) {
-    const items = await searchRange(baby, from, to, { ...opts, page });
+    const items = await searchRangePage(baby, from, to, { ...opts, page });
     all.push(...items);
     if (!items.hasMore) break;
   }
