@@ -656,7 +656,11 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/people/:id/faces', async (req) => {
     const { id } = uuidParams.parse(req.params);
     const { size } = z.object({ size: z.coerce.number().int().min(1).max(24).default(12) }).parse(req.query);
-    const assets = await immich.searchRandom({ randomSearchDto: { personIds: [id], size, type: immich.AssetTypeEnum.Image, visibility: immich.AssetVisibility.Timeline } });
+    // 优先用照片；有的人物只出现在视频里（人脸是从视频封面认出来的），照片不够就用视频补上
+    const pick = (type: immich.AssetTypeEnum, n: number) =>
+      immich.searchRandom({ randomSearchDto: { personIds: [id], size: n, type, visibility: immich.AssetVisibility.Timeline } });
+    const images = await pick(immich.AssetTypeEnum.Image, size);
+    const assets = images.length < size ? [...images, ...(await pick(immich.AssetTypeEnum.Video, size - images.length))] : images;
     return mapLimit(assets, 6, async (a) => {
       const faces = await immich.getFaces({ id: a.id }).catch(() => []);
       const f = faces.find((x) => x.person?.id === id);

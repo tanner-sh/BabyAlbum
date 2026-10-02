@@ -1794,6 +1794,7 @@ select {
 }
 
 .face-crop {
+  position: relative;
   display: block;
   width: 100%;
   padding: 0;
@@ -4100,4 +4101,17 @@ details.account-section[open] summary {
     flex-shrink: 0;
     white-space: nowrap;
   }
+}
+
+.face-crop-video {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
 }

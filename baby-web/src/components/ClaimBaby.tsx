@@ -111,7 +111,7 @@ export function ClaimModal({ personId, assets, thumbnailUrl, onClose }: { person
       <div className="person-editor">
         <Avatar baby={{ name: name || '?', thumbnailUrl }} size={120} />
         <div className="form">
-          <p className="muted">出现在 {assets.toLocaleString()} 张照片里</p>
+          <p className="muted">出现在 {assets.toLocaleString()} 张照片或视频里</p>
           <label className="field">
             <span>名字</span>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50} placeholder="宝宝的小名" autoFocus />

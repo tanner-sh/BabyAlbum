@@ -118,7 +118,7 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
         <div className="person-editor">
           <Avatar baby={{ name: person.name || '?', thumbnailUrl: person.thumbnailUrl }} size={120} />
           <div className="form">
-            <p className="muted">出现在 {person.assets.toLocaleString()} 张照片里</p>
+            <p className="muted">出现在 {person.assets.toLocaleString()} 张照片或视频里</p>
             <label className="field">
               <span>名字</span>
               <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50} placeholder="比如：宝宝的小名、妈妈" />

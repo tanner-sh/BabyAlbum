@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Images, RefreshCw } from 'lucide-react';
+import { Images, Play, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { get, type PersonFace } from '../api';
 import { formatDate } from '../format';
@@ -120,8 +120,20 @@ export function FaceStrip({ person, title, size, hideAvatar }: { person: PersonR
 function FaceCrop({ face, onClick }: { face: PersonFace; onClick: () => void }) {
   const url = `/api/assets/${face.id}/thumbnail?size=preview`;
   // 拍摄时间是当地时间，不能用 new Date（会当成 UTC 再换算）
-  const title = `${formatDate(face.takenAt)}，点开看整张照片`;
-  if (!face.box) return <button type="button" className="face-crop" onClick={onClick} title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
+  const isVideo = face.type === 'VIDEO';
+  const title = `${formatDate(face.takenAt)}，${isVideo ? '点开播放视频' : '点开看整张照片'}`;
+  // 有的人物只出现在视频里（人脸是从视频封面认出来的），标出来
+  const badge = isVideo && (
+    <span className="face-crop-video">
+      <Play size={12} fill="currentColor" />
+    </span>
+  );
+  if (!face.box)
+    return (
+      <button type="button" className="face-crop" onClick={onClick} title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+        {badge}
+      </button>
+    );
   const { x, y, w, h, ratio } = face.box;
   // 以照片高度为 1，宽度为 ratio；取一个包住脸、放大 1.8 倍的正方形，不超出照片
   const side = Math.min(Math.max(w * ratio, h) * 1.8, ratio, 1);
@@ -141,6 +153,8 @@ function FaceCrop({ face, onClick }: { face: PersonFace; onClick: () => void }) 
         backgroundSize: `${100 / sw}% ${100 / sh}%`,
         backgroundPosition: `${pos(left, sw)}% ${pos(top, sh)}%`,
       }}
-    />
+    >
+      {badge}
+    </button>
   );
 }
