@@ -146,7 +146,7 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
             <Merge size={16} /> 合并到这个人物
           </h3>
           <p className="muted">
-            勾选其实是同一个人的人物（比如宝宝更小时候的照片），保存后它们的照片都会归到“{name || '这个人物'}”。标着“可能是同一人”的从没和 TA 同框过，排在前面。拿不准的点“看照片”，把两边的脸放在一起对比。
+            勾选其实是同一个人的人物（比如宝宝更小时候的照片），保存后它们的照片都会归到“{name || '这个人物'}”。标着“可能是同一人”的从没和 TA 同框过，排在前面。拿不准的点卡片右上角的照片按钮，把两边的脸放在一起对比。
           </p>
           <div className="merge-grid">
             {candidates.map((p) => {
@@ -159,8 +159,8 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
                     <span className="muted">{p.assets} 张</span>
                     {maybeSame.has(p.id) && <span className="chip chip-accent small">可能是同一人</span>}
                   </button>
-                  <button type="button" className="merge-option-look" onClick={() => setComparing(p)}>
-                    <Images size={14} /> 看照片
+                  <button type="button" className="merge-option-look" onClick={() => setComparing(p)} title="看照片，和这个人物对比" aria-label="看照片">
+                    <Images size={15} />
                   </button>
                 </div>
               );

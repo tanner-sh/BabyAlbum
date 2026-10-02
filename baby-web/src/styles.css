@@ -1732,24 +1732,34 @@ select {
   cursor: pointer;
 }
 
+.merge-option {
+  position: relative;
+}
+
+.merge-option .chip {
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
 .merge-option-look {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border: 0;
-  border-radius: 999px;
-  background: none;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
   color: var(--muted);
-  font: inherit;
-  font-size: 0.8rem;
   cursor: pointer;
 }
 
 .merge-option-look:hover {
   color: var(--accent);
-  background: var(--surface);
+  border-color: var(--accent);
 }
 
 .face-strip + .face-strip {
