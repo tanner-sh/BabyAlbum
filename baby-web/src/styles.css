@@ -1939,7 +1939,8 @@ details summary {
   object-fit: contain;
 }
 
-.lightbox-media > video {
+/* 普通视频给控制条留位置；实况视频要和照片一样大、叠在照片上，不能套这个限高 */
+.lightbox-media > video:not(.live-video) {
   max-width: 100vw;
   max-height: calc(100dvh - 120px);
 }

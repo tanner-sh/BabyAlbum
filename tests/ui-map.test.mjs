@@ -89,6 +89,24 @@ check('找到实况照片', !!liveThumb);
 check('缩略图有实况标记', !!liveThumb && (await liveThumb.evaluate((t) => !!t.querySelector('.thumb-live'))));
 check('实况视频没有单独出现', !(await page.evaluate(() => [...document.querySelectorAll('.thumb')].some((t) => t.getAttribute('aria-label').includes('IMG_9001.MOV')))));
 
+// 打开实况照片：自动播放的视频要和照片一样大、叠在照片上（以前被普通视频的限高缩小了一圈）
+if (liveThumb) {
+  await page.setViewport({ width: 1000, height: 560 });
+  await liveThumb.evaluate((t) => t.click());
+  await page.waitForSelector('.live-video', { timeout: 10000 }).catch(() => {});
+  await sleep(300);
+  const sizes = await page.evaluate(() => {
+    const box = (sel) => {
+      const b = document.querySelector(sel)?.getBoundingClientRect();
+      return b && [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)].join(',');
+    };
+    return { img: box('.lightbox-media > img'), live: box('.live-video') };
+  });
+  check('实况视频播放时和照片一样大', !!sizes.live && sizes.live === sizes.img, sizes);
+  await page.keyboard.press('Escape');
+  await page.setViewport({ width: 1280, height: 900 });
+}
+
 // ---- 视频日期
 await page.goto(`${BASE}/baby/1`, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.notice', { timeout: 20000 });
