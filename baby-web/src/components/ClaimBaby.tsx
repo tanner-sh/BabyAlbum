@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Merge, Sparkles, X } from 'lucide-react';
+import { Images, Merge, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, request, type Baby, type PersonSuggestion, type Sex, type SimilarPerson } from '../api';
-import { Avatar, ErrorBox, Modal, Spinner } from './ui';
+import { CompareModal, FaceStrip, PersonPhotosButton } from './PersonPhotos';
+import { attempt, Avatar, ErrorBox, Modal, Spinner } from './ui';
 
 // 宝宝认领引导：人脸识别出人物后，主动问“这是宝宝吗？”，并找出可能是同一个人的其他人物一起合并
 
@@ -37,8 +38,7 @@ export function ClaimBanner() {
   if (!s) return null;
 
   async function dismiss() {
-    await request('POST', `/api/admin/people/${s!.id}/dismiss`);
-    await queryClient.invalidateQueries({ queryKey: ['admin', 'people', 'suggestion'] });
+    if (await attempt(() => request('POST', `/api/admin/people/${s!.id}/dismiss`))) await queryClient.invalidateQueries({ queryKey: ['admin', 'people', 'suggestion'] });
   }
 
   return (
@@ -58,6 +58,7 @@ export function ClaimBanner() {
           <button className="btn" onClick={dismiss}>
             不是
           </button>
+          <PersonPhotosButton person={s} title="是宝宝吗？" />
         </div>
       </div>
       {claiming && <ClaimModal personId={s.id} assets={s.assets} thumbnailUrl={s.thumbnailUrl} onClose={() => setClaiming(false)} />}
@@ -125,6 +126,7 @@ export function ClaimModal({ personId, assets, thumbnailUrl, onClose }: { person
           </div>
         </div>
       </div>
+      <FaceStrip person={{ id: personId, assets, thumbnailUrl }} title="TA 的照片" size={8} hideAvatar />
       <SimilarPeople personId={personId} name={name || '宝宝'} selected={merging} onChange={setMerging} />
       {error && <div className="error-box">{error}</div>}
     </Modal>
@@ -133,6 +135,7 @@ export function ClaimModal({ personId, assets, thumbnailUrl, onClose }: { person
 
 /** 可能和这个人物是同一个人的其他人物（从没同框过的），勾选后合并 */
 export function SimilarPeople({ personId, name, selected, onChange }: { personId: string; name: string; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [comparing, setComparing] = useState<SimilarPerson | null>(null);
   const similar = useQuery({
     queryKey: ['admin', 'people', 'similar', personId],
     queryFn: () => get<SimilarPerson[]>(`/api/admin/people/${personId}/similar`),
@@ -144,7 +147,7 @@ export function SimilarPeople({ personId, name, selected, onChange }: { personId
         <Merge size={16} /> 这些可能也是{name}
       </h3>
       <p className="muted">
-        宝宝从小到大长相变化很大，常被识别成好几个人物。下面是从没和{name}同框过的人物（同一个人不会和自己同框），按照片数量排序。勾选确实是{name}的，保存时会合并到一起。
+        宝宝从小到大长相变化很大，常被识别成好几个人物。下面是从没和{name}同框过的人物（同一个人不会和自己同框），按照片数量排序。勾选确实是{name}的，保存时会合并到一起。拿不准的点卡片右上角的照片按钮对比。
       </p>
       {similar.isPending ? (
         <Spinner label="正在比对…" />
@@ -157,14 +160,32 @@ export function SimilarPeople({ personId, name, selected, onChange }: { personId
           {similar.data.slice(0, 24).map((p) => {
             const on = selected.includes(p.id);
             return (
-              <button key={p.id} type="button" className={`merge-option ${on ? 'selected' : ''}`} onClick={() => onChange(on ? selected.filter((x) => x !== p.id) : [...selected, p.id])}>
-                <Avatar baby={{ name: p.name || '?', thumbnailUrl: p.thumbnailUrl }} size={64} />
-                <span>{p.name || '未命名'}</span>
-                <span className="muted">{p.assets} 张</span>
-              </button>
+              <div key={p.id} className={`merge-option ${on ? 'selected' : ''}`}>
+                <button type="button" className="merge-option-pick" onClick={() => onChange(on ? selected.filter((x) => x !== p.id) : [...selected, p.id])}>
+                  <Avatar baby={{ name: p.name || '?', thumbnailUrl: p.thumbnailUrl }} size={64} />
+                  <span>{p.name || '未命名'}</span>
+                  <span className="muted">{p.assets} 张</span>
+                </button>
+                <button type="button" className="merge-option-look" onClick={() => setComparing(p)} title={`看照片，和${name}对比`} aria-label="看照片">
+                  <Images size={15} />
+                </button>
+              </div>
             );
           })}
         </div>
+      )}
+      {comparing && (
+        <CompareModal
+          person={{ id: personId, thumbnailUrl: `/api/people/${personId}/thumbnail` }}
+          name={name}
+          other={comparing}
+          selected={selected.includes(comparing.id)}
+          onPick={(on) => {
+            onChange(on ? [...new Set([...selected, comparing.id])] : selected.filter((x) => x !== comparing.id));
+            setComparing(null);
+          }}
+          onClose={() => setComparing(null)}
+        />
       )}
     </div>
   );

@@ -37,6 +37,8 @@ const timelineQuery = z.object({
   size: z.coerce.number().int().min(1).max(500).default(120),
   // 只看和某个家人的合照，或者全家福
   with: z.union([z.uuid(), z.literal('family')]).optional(),
+  // 从这一天之前开始往前看（时间线上“跳到某个月龄”）
+  before: z.iso.date().optional(),
 });
 const sizeQuery = z.object({ size: z.enum(['thumbnail', 'preview']).default('thumbnail') });
 const dayParams = babyParams.extend({ date: z.iso.date() });
@@ -117,14 +119,14 @@ export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolv
   app.get(`${prefix}/babies/:id/timeline`, async (req, reply) => {
     const baby = await babyFrom(req, reply);
     if (!baby) return reply;
-    const { page, size, with: withWho } = timelineQuery.parse(req.query);
-    if (!withWho) return timeline(baby, page, size);
+    const { page, size, with: withWho, before } = timelineQuery.parse(req.query);
+    if (!withWho) return timeline(baby, page, size, { before });
     const ctx = (await resolve(req, reply))!;
     if (!ctx.family) return reply.code(404).send({ message: '不存在' });
-    if (withWho === 'family') return timeline(baby, page, size, { family: () => familyPhotos(baby) });
+    if (withWho === 'family') return timeline(baby, page, size, { family: () => familyPhotos(baby), before });
     // 只能按已命名的家人筛选
     if (!(await namedPeople()).has(withWho)) return reply.code(404).send({ message: '不存在' });
-    return timeline(baby, page, size, { withPerson: withWho });
+    return timeline(baby, page, size, { withPerson: withWho, before });
   });
 
   // 和宝宝同框过的家人

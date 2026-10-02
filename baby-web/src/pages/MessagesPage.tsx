@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { get, thumbUrl, useAlbum, type RecentInteraction } from '../api';
 import { FamilyTabs } from '../components/SectionTabs';
 import { Empty, ErrorBox, Spinner } from '../components/ui';
-import { formatDateTime } from '../format';
+import { formatServerTime } from '../format';
 
 /** 家人的点赞、留言（包括分享链接的访客） */
 export function MessagesPage() {
@@ -36,7 +36,7 @@ export function MessagesPage() {
                   ) : (
                     <span>{r.text}</span>
                   )}
-                  <time className="muted small">{formatDateTime(r.createdAt.replace(' ', 'T'))}</time>
+                  <time className="muted small">{formatServerTime(r.createdAt)}</time>
                 </span>
               </Link>
             </li>

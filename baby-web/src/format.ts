@@ -53,6 +53,19 @@ export function formatDateTime(s: string, withTime = true): string {
   return `${y}年${m}月${d}日${withTime && time ? ` ${time.slice(0, 5)}` : ''}`;
 }
 
+/**
+ * 服务器记录的时间（SQLite 的“2026-10-02 01:20:32”、Immich 的“…Z”都是 UTC）→ 本地时间。
+ * 照片的拍摄时间是当地时间，不能用这个，要用 formatDateTime
+ */
+export function formatServerTime(s: string, { withTime = true, withYear = true } = {}): string {
+  const iso = s.includes('T') ? s : s.replace(' ', 'T');
+  const d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`);
+  if (Number.isNaN(d.getTime())) return s;
+  const date = `${withYear ? `${d.getFullYear()}年` : ''}${d.getMonth() + 1}月${d.getDate()}日`;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return withTime ? `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}` : date;
+}
+
 export function formatDate(s: string): string {
   return formatDateTime(s, false);
 }

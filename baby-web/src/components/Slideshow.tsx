@@ -1,6 +1,7 @@
 import { Pause, Play, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { thumbUrl, useAlbum } from '../api';
+import { useLayer } from './ui';
 
 const INTERVAL_MS = 2500;
 
@@ -12,6 +13,7 @@ export function Slideshow({ title, slides: cells, onClose }: { title: string; sl
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const cell = cells[index];
+  const isTop = useLayer(onClose);
 
   useEffect(() => {
     if (paused) return;
@@ -30,18 +32,15 @@ export function Slideshow({ title, slides: cells, onClose }: { title: string; sl
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!isTop()) return;
       if (e.key === 'Escape') onClose();
       if (e.key === ' ') setPaused((p) => !p);
       if (e.key === 'ArrowRight') setIndex((i) => Math.min(i + 1, cells.length - 1));
       if (e.key === 'ArrowLeft') setIndex((i) => Math.max(i - 1, 0));
     };
     window.addEventListener('keydown', onKey);
-    document.body.classList.add('no-scroll');
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.classList.remove('no-scroll');
-    };
-  }, [onClose, cells.length]);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, cells.length, isTop]);
 
   return (
     <div className="slideshow">

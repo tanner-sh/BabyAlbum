@@ -64,6 +64,7 @@ export function SearchResults({ q, babyId, onMilestone }: { q: string; babyId: n
             if (i > items.length - 10 && hasNextPage && !isFetchingNextPage) fetchNextPage();
           }}
           onClose={() => setOpen(null)}
+          hasMore={hasNextPage}
           onMilestone={onMilestone}
         />
       )}

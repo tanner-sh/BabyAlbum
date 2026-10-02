@@ -172,12 +172,13 @@ export const liveUrl = (album: Album, id: string) => `${album.base}/assets/${id}
 // ---------------------------------------------------------------- 查询
 
 /** withWho：只看和某个家人（人物 ID）的合照，或者 'family'（全家福） */
-export function useTimeline(babyId: number, withWho: string | null = null) {
+/** before：从这一天之前开始往前看（跳到某个月龄） */
+export function useTimeline(babyId: number, withWho: string | null = null, before: string | null = null) {
   const album = useAlbum();
   return useInfiniteQuery({
-    queryKey: [album.base, 'timeline', babyId, withWho],
+    queryKey: [album.base, 'timeline', babyId, withWho, before],
     queryFn: ({ pageParam }) =>
-      get<TimelinePage>(`${album.base}/babies/${babyId}/timeline?page=${pageParam}&size=120${withWho ? `&with=${withWho}` : ''}`),
+      get<TimelinePage>(`${album.base}/babies/${babyId}/timeline?page=${pageParam}&size=120${withWho ? `&with=${withWho}` : ''}${before ? `&before=${before}` : ''}`),
     initialPageParam: 1,
     getNextPageParam: (last) => last.nextPage,
   });

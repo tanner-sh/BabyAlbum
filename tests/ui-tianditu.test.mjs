@@ -102,11 +102,12 @@ await page.waitForSelector('.map-tile-error', { timeout: 20000 });
 check('底图加载失败时地图上有提示', (await page.$eval('.map-tile-error', (e) => e.innerText)).includes('天地图的 Key'));
 await page.screenshot({ path: `${SHOTS}tianditu-error.png` });
 
-// 删除 Key 后回到 OpenStreetMap
-page.on('dialog', (d) => d.accept());
+// 删除 Key 后回到 OpenStreetMap（页面里的确认框）
 await page.goto(`${BASE}/admin/settings`, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.tianditu-key');
 await page.evaluate(() => [...document.querySelectorAll('.tianditu-key button')].find((b) => b.innerText.includes('删除')).click());
+await page.waitForSelector('.modal .btn-danger');
+await page.click('.modal .btn-danger');
 await page.waitForFunction(() => document.querySelector('.success-box')?.innerText.includes('已删除'));
 const s2 = await settings();
 check('删除 Key 后换回 OpenStreetMap', s2.mapTiles === 'osm' && s2.tiandituKey === null, s2);

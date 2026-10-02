@@ -3,7 +3,7 @@ import { Flag, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { request, thumbUrl, useAlbum, useMilestones, useMonth, type Baby, type Milestone } from '../api';
 import { ageMonths, formatDate, today } from '../format';
-import { Empty, ErrorBox, Modal, Spinner } from './ui';
+import { Empty, ErrorBox, Modal, Spinner, useConfirm } from './ui';
 
 export type MilestoneDraft = Partial<Milestone> & { date: string };
 
@@ -87,11 +87,20 @@ export function MilestoneEditor({ baby, draft, onClose }: { baby: Baby; draft: M
     }
   }
 
-  async function remove() {
-    if (!draft.id || !confirm(`删除里程碑“${draft.title}”？`)) return;
-    await request('DELETE', `/api/milestones/${draft.id}`);
-    await queryClient.invalidateQueries({ queryKey: [album.base, 'milestones', baby.id] });
-    onClose();
+  const [ask, confirmDialog] = useConfirm();
+  function remove() {
+    if (!draft.id) return;
+    ask({
+      title: '删除里程碑',
+      message: `删除“${draft.title}”？`,
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/milestones/${draft.id}`);
+        await queryClient.invalidateQueries({ queryKey: [album.base, 'milestones', baby.id] });
+        onClose();
+      },
+    });
   }
 
   return (
@@ -154,6 +163,7 @@ export function MilestoneEditor({ baby, draft, onClose }: { baby: Baby; draft: M
         </div>
         {error && <div className="error-box">{error}</div>}
       </div>
+      {confirmDialog}
     </Modal>
   );
 }

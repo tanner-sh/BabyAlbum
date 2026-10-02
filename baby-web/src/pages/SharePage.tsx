@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link2Off, Lock, Play, Search, X } from 'lucide-react';
+import { CloudOff, ImageOff, Link2Off, Lock, Play, Search, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { AlbumContext, get, request, type AlbumItem, type ShareInfo } from '../api';
+import { AlbumContext, ApiError, get, request, type AlbumItem, type ShareInfo } from '../api';
 import { BabyView } from '../components/BabyView';
 import { Lightbox } from '../components/Lightbox';
 import { PhotoGrid } from '../components/PhotoGrid';
@@ -22,10 +22,23 @@ export function SharePage() {
 
   if (info.isPending) return <Spinner />;
   if (info.isError) {
+    // 只有服务器明确说链接不存在时才说“无效”；连不上、服务器出错时让对方稍后再试，别以为链接坏了
+    if (info.error instanceof ApiError && info.error.status === 404) {
+      return (
+        <div className="page">
+          <Empty icon={<Link2Off size={48} />} title="链接无效或已过期">
+            请联系分享给你的人重新分享。
+          </Empty>
+        </div>
+      );
+    }
     return (
       <div className="page">
-        <Empty icon={<Link2Off size={48} />} title="链接无效或已过期">
-          请联系分享给你的人重新分享。
+        <Empty icon={<CloudOff size={48} />} title="暂时打不开">
+          <p>可能是网络不好，或者相册正在维护。链接没有问题，过一会儿再试试。</p>
+          <button className="btn btn-primary" onClick={() => info.refetch()} disabled={info.isFetching}>
+            {info.isFetching ? '正在重试…' : '重试'}
+          </button>
         </Empty>
       </div>
     );
@@ -35,6 +48,15 @@ export function SharePage() {
   const data = info.data;
   if (data.album) return <SharedAlbum base={base} data={data} />;
   const baby = data.babies.find((b) => b.id === Number(params.get('baby'))) ?? data.babies[0];
+  if (!baby) {
+    return (
+      <div className="page">
+        <Empty icon={<ImageOff size={48} />} title="这里还没有照片">
+          分享的宝宝已经被移除了，请联系分享给你的人重新分享。
+        </Empty>
+      </div>
+    );
+  }
 
   return (
     <AlbumContext.Provider value={{ base, readOnly: true, allowDownload: data.allowDownload, interact: data.allowComments ? { visitorName: data.label } : false }}>

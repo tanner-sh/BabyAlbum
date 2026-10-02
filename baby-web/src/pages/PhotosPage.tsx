@@ -95,6 +95,7 @@ function AllPhotos({ isAdmin }: { isAdmin: boolean }) {
             if (i > flat.length - 10 && hasNextPage && !isFetchingNextPage) fetchNextPage();
           }}
           onClose={() => setOpen(null)}
+          hasMore={hasNextPage}
         />
       )}
     </>

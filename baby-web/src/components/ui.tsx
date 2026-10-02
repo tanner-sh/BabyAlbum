@@ -1,5 +1,5 @@
 import { Check, Copy, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { type Baby } from '../api';
 
 export function Spinner({ label = '加载中…' }: { label?: string }) {
@@ -34,23 +34,162 @@ export function Avatar({ baby, size = 56 }: { baby: Pick<Baby, 'name' | 'thumbna
   );
 }
 
-const layers: object[] = [];
+type Layer = { id: number; close: () => void; history: boolean };
+const layers: Layer[] = [];
+let nextLayerId = 1;
+const LAYER_KEY = 'babyAlbumLayer';
+/** 被返回键关掉的层：它在历史记录里的那一条已经没了，关闭时不用再后退 */
+const closedByBack = new Set<number>();
+const historyLayer = () => (window.history.state?.[LAYER_KEY] as number | undefined) ?? 0;
+
+// 手机的返回键、侧滑返回：只关掉最上面的弹窗、大图，不离开当前页面
+window.addEventListener('popstate', () => {
+  const current = historyLayer();
+  for (const l of [...layers].reverse()) {
+    if (!l.history || l.id <= current) continue;
+    closedByBack.add(l.id);
+    l.close();
+  }
+});
 
 /**
  * 叠起来的弹窗、大图（比如人物弹窗里再点开照片）：只有最上面一层响应 Esc，
- * 全部关掉后页面才恢复滚动。返回“当前是不是最上面一层”
+ * 全部关掉后页面才恢复滚动。打开时在浏览器历史里记一条，按返回键就是关掉这一层。
+ * 返回“当前是不是最上面一层”
  */
-export function useLayer() {
-  const [token] = useState(() => ({}));
+export function useLayer(onClose: () => void, { history = true }: { history?: boolean } = {}) {
+  const [id] = useState(() => nextLayerId++);
+  const closeRef = useRef(onClose);
   useEffect(() => {
-    layers.push(token);
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    const layer: Layer = { id, close: () => closeRef.current(), history };
+    layers.push(layer);
     document.body.classList.add('no-scroll');
+    if (history && historyLayer() !== id) window.history.pushState({ ...window.history.state, [LAYER_KEY]: id }, '');
     return () => {
-      layers.splice(layers.indexOf(token), 1);
+      layers.splice(layers.indexOf(layer), 1);
       if (!layers.length) document.body.classList.remove('no-scroll');
+      if (!history) return;
+      // 点关闭按钮关掉的：把记的那一条退掉。关闭时跳到了别的页面（历史记录已经不是这一条）就不用管
+      setTimeout(() => {
+        if (closedByBack.delete(id) || layers.some((l) => l.id === id)) return;
+        if (historyLayer() === id) window.history.back();
+      });
     };
-  }, [token]);
-  return useCallback(() => layers.at(-1) === token, [token]);
+  }, [id, history]);
+  return useCallback(() => layers.at(-1)?.id === id, [id]);
+}
+
+// ---------------------------------------------------------------- 提示条
+
+type ToastItem = { id: number; text: string; kind: 'ok' | 'error' };
+let toasts: ToastItem[] = [];
+let nextToastId = 1;
+const toastListeners = new Set<() => void>();
+const emitToasts = () => toastListeners.forEach((l) => l());
+
+/** 页面底部的提示，几秒后自动消失。操作成功、失败的反馈都用它 */
+export function toast(text: string, kind: 'ok' | 'error' = 'ok') {
+  const id = nextToastId++;
+  toasts = [...toasts, { id, text, kind }];
+  emitToasts();
+  setTimeout(
+    () => {
+      toasts = toasts.filter((t) => t.id !== id);
+      emitToasts();
+    },
+    kind === 'error' ? 6000 : 3000,
+  );
+}
+
+export const errorMessage = (e: unknown, fallback = '操作失败，请稍后再试') => (e instanceof Error && e.message ? e.message : fallback);
+
+/** 执行一个操作，失败时弹出提示；返回是否成功 */
+export async function attempt(fn: () => Promise<unknown>, okText?: string): Promise<boolean> {
+  try {
+    await fn();
+    if (okText) toast(okText);
+    return true;
+  } catch (e) {
+    toast(errorMessage(e), 'error');
+    return false;
+  }
+}
+
+export function Toaster() {
+  const list = useSyncExternalStore(
+    (l) => {
+      toastListeners.add(l);
+      return () => toastListeners.delete(l);
+    },
+    () => toasts,
+  );
+  if (!list.length) return null;
+  return (
+    <div className="toaster" role="status" aria-live="polite">
+      {list.map((t) => (
+        <div key={t.id} className={`toast toast-${t.kind}`}>
+          {t.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 确认框
+
+type ConfirmRequest = {
+  title: string;
+  message?: ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  /** 点确定后执行；失败时确认框不关，显示原因 */
+  action: () => Promise<unknown>;
+};
+
+/** 页面里的确认框（代替浏览器自带的 confirm）：确定后显示处理中，失败了告诉用户原因。返回 [打开确认框, 要渲染的确认框] */
+export function useConfirm() {
+  const [request, setRequest] = useState<ConfirmRequest | null>(null);
+  const dialog = request && <ConfirmDialog {...request} onClose={() => setRequest(null)} />;
+  return [setRequest as (r: ConfirmRequest) => void, dialog] as const;
+}
+
+function ConfirmDialog({ title, message, confirmLabel = '确定', danger, action, onClose }: ConfirmRequest & { onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={title}
+      onClose={busy ? () => {} : onClose}
+      footer={
+        <>
+          <span className="spacer" />
+          <button className="btn" onClick={onClose} disabled={busy}>
+            取消
+          </button>
+          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={run} disabled={busy}>
+            {busy ? '处理中…' : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {message && <div className="confirm-message">{message}</div>}
+      {error && <div className="error-box">{error}</div>}
+    </Modal>
+  );
 }
 
 export function Modal({
@@ -66,11 +205,11 @@ export function Modal({
   footer?: ReactNode;
   wide?: boolean;
 }) {
-  const isTop = useLayer();
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
   });
+  const isTop = useLayer(() => closeRef.current());
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && isTop() && closeRef.current();
     window.addEventListener('keydown', onKey);

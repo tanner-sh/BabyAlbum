@@ -69,6 +69,13 @@ export function skipPerson(id: string) {
   settings.set('people.skipped', JSON.stringify([...set].slice(-1000)));
 }
 
+/** 撤销“跳过” */
+export function unskipPerson(id: string) {
+  const set = skipped();
+  set.delete(id);
+  settings.set('people.skipped', JSON.stringify([...set]));
+}
+
 /**
  * 还没命名、照片多的人物，经常和宝宝同框的排在前面（多半是家里人）。
  * 照片太少的（可能是路人、误识别）不列

@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Folder, FolderPlus, Pause, Play, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { get, request, type FolderListing, type ImmichOverview, type Library, type NasOverview, type Queue } from '../../api';
-import { ErrorBox, Modal, Spinner } from '../../components/ui';
-import { formatBytes, formatDateTime } from '../../format';
+import { attempt, ErrorBox, Modal, Spinner, useConfirm } from '../../components/ui';
+import { formatBytes, formatServerTime } from '../../format';
 import { ImportProgressCard } from './ImportProgress';
 import { StorageSection } from './StorageSection';
 
@@ -105,15 +105,18 @@ function ConnectForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setBusy(true);
     try {
       await request('POST', '/api/admin/immich/connect', { email, password });
       await queryClient.invalidateQueries();
     } catch (err) {
       setError(err instanceof Error ? err.message : '连接失败');
     }
+    setBusy(false);
   }
   return (
     <form className="form" onSubmit={submit}>
@@ -121,7 +124,9 @@ function ConnectForm() {
       <div className="inline-fields">
         <input placeholder="Immich 管理员邮箱" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input placeholder="密码" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <button className="btn btn-primary">连接</button>
+        <button className="btn btn-primary" disabled={busy}>
+          {busy ? '连接中…' : '连接'}
+        </button>
       </div>
       {error && <div className="error-box">{error}</div>}
     </form>
@@ -144,23 +149,33 @@ function LibraryCard({ library, nasRoot, counting, onEdit }: { library: Library;
   const queryClient = useQueryClient();
   const nasNames = useNasNames();
   const [scanning, setScanning] = useState(false);
+  const [ask, confirmDialog] = useConfirm();
   async function scan() {
     setScanning(true);
-    await request('POST', `/api/admin/libraries/${library.id}/scan`).finally(() => setScanning(false));
+    await attempt(() => request('POST', `/api/admin/libraries/${library.id}/scan`), '已开始扫描，新照片会陆续出现');
+    setScanning(false);
     await queryClient.invalidateQueries({ queryKey: ['admin', 'immich'] });
   }
-  async function remove() {
-    if (!confirm(`从照片库中移除“${library.name}”？\n\n宝宝相册将不再显示这些照片（存储上的文件不受影响，之后可以重新导入）。`)) return;
-    await request('DELETE', `/api/admin/libraries/${library.id}`);
-    await queryClient.invalidateQueries();
+  function remove() {
+    ask({
+      title: '移除照片库',
+      message: `从照片库中移除“${library.name}”？宝宝相册将不再显示这些照片（存储上的文件不受影响，之后可以重新导入）。`,
+      confirmLabel: '移除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/admin/libraries/${library.id}`);
+        await queryClient.invalidateQueries();
+      },
+    });
   }
   return (
     <div className="card library-card">
+      {confirmDialog}
       <div className="library-head">
         <div>
           <strong>{library.name}</strong>
           <span className="muted">
-            {library.assetCount.toLocaleString()} 个文件{library.usage ? `，${formatBytes(library.usage)}${counting ? '（统计中）' : ''}` : ''} · {library.refreshedAt ? `上次扫描 ${formatDateTime(library.refreshedAt)}` : '还没扫描完'}
+            {library.assetCount.toLocaleString()} 个文件{library.usage ? `，${formatBytes(library.usage)}${counting ? '（统计中）' : ''}` : ''} · {library.refreshedAt ? `上次扫描 ${formatServerTime(library.refreshedAt)}` : '还没扫描完'}
           </span>
         </div>
         <div className="share-actions">
@@ -313,8 +328,12 @@ function FolderPicker({ selected, onToggle }: { selected: string[]; onToggle: (p
 function QueueSection({ queues }: { queues: Queue[] }) {
   const queryClient = useQueryClient();
   const busy = queues.filter((q) => q.active + q.waiting > 0);
-  async function run(name: string, command: string) {
-    await request('POST', `/api/admin/immich/queues/${name}`, { command });
+  const [running, setRunning] = useState<string | null>(null);
+  const DONE: Record<string, string> = { pause: '已暂停', resume: '已继续', start: '已开始补跑', 'clear-failed': '已清除失败记录' };
+  async function run(q: Queue, command: string) {
+    setRunning(q.name);
+    await attempt(() => request('POST', `/api/admin/immich/queues/${q.name}`, { command }), `${q.label}：${DONE[command]}`);
+    setRunning(null);
     await queryClient.invalidateQueries({ queryKey: ['admin', 'immich'] });
   }
   return (
@@ -336,21 +355,22 @@ function QueueSection({ queues }: { queues: Queue[] }) {
               {q.active + q.waiting === 0 && !q.failed && !q.isPaused && <span className="muted">空闲</span>}
             </span>
             <span className="queue-actions">
+              {/* 手机上看不到鼠标悬停的提示，按钮上直接写字 */}
               {q.isPaused ? (
-                <button className="icon-btn" title="继续" onClick={() => run(q.name, 'resume')}>
-                  <Play size={16} />
+                <button className="btn btn-small" disabled={running === q.name} onClick={() => run(q, 'resume')}>
+                  <Play size={14} /> 继续
                 </button>
               ) : (
-                <button className="icon-btn" title="暂停" onClick={() => run(q.name, 'pause')} disabled={q.active + q.waiting === 0}>
-                  <Pause size={16} />
+                <button className="btn btn-small" disabled={running === q.name || q.active + q.waiting === 0} onClick={() => run(q, 'pause')}>
+                  <Pause size={14} /> 暂停
                 </button>
               )}
-              <button className="icon-btn" title="补跑：处理还没处理过的文件" onClick={() => run(q.name, 'start')}>
-                <RefreshCw size={16} />
+              <button className="btn btn-small" disabled={running === q.name} onClick={() => run(q, 'start')} title="处理还没处理过的文件">
+                <RefreshCw size={14} /> 补跑
               </button>
               {q.failed > 0 && (
-                <button className="icon-btn" title="清除失败记录" onClick={() => run(q.name, 'clear-failed')}>
-                  <RotateCcw size={16} />
+                <button className="btn btn-small" disabled={running === q.name} onClick={() => run(q, 'clear-failed')}>
+                  <RotateCcw size={14} /> 清除失败
                 </button>
               )}
             </span>

@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart, Send, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { get, request, useAlbum, type Social } from '../api';
+import { formatServerTime } from '../format';
+import { useConfirm } from './ui';
 
 // 家人互动：点赞、留言。登录的家人用自己的称呼；分享链接的访客第一次互动时填一个称呼，浏览器会记住
 
@@ -69,10 +71,18 @@ export function SocialPanel({ assetId }: { assetId: string }) {
     if (text.trim() && (await send('comments', { text: text.trim() }))) setText('');
   }
 
-  async function remove(id: number) {
-    if (!confirm('删除这条留言？')) return;
-    await request('DELETE', `${album.base}/comments/${id}`);
-    await queryClient.invalidateQueries({ queryKey: [album.base, 'social', assetId] });
+  const [ask, confirmDialog] = useConfirm();
+  function remove(id: number) {
+    ask({
+      title: '删除留言',
+      message: '删除这条留言？',
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `${album.base}/comments/${id}`);
+        await queryClient.invalidateQueries({ queryKey: [album.base, 'social', assetId] });
+      },
+    });
   }
 
   if (!album.interact) return null;
@@ -94,7 +104,7 @@ export function SocialPanel({ assetId }: { assetId: string }) {
             <li key={c.id}>
               <strong>{c.name}</strong>
               <span>{c.text}</span>
-              <time className="muted">{c.createdAt.slice(5, 16).replace('-', '月').replace(' ', '日 ')}</time>
+              <time className="muted">{formatServerTime(c.createdAt, { withYear: false })}</time>
               {c.canDelete && (
                 <button className="icon-btn" onClick={() => remove(c.id)} aria-label="删除留言">
                   <Trash2 size={14} />
@@ -122,6 +132,7 @@ export function SocialPanel({ assetId }: { assetId: string }) {
         </button>
       )}
       {error && <div className="error-box">{error}</div>}
+      {confirmDialog}
     </div>
   );
 }

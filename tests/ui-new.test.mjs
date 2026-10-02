@@ -142,9 +142,9 @@ await clickText(page, '.selection-bar button', '加入相册');
 await page.waitForSelector('.album-new input');
 await page.type('.album-new input', '界面测试相册');
 await clickText(page, '.album-new button', '新建并加入');
-await page.waitForFunction(() => document.querySelector('.modal .success-box')?.innerText.includes('已加入'));
-check('新建相册并加入选中的照片', true);
-await clickText(page, '.modal-footer button', '完成');
+// 加好了弹窗直接关掉，底部提示结果
+await page.waitForFunction(() => document.querySelector('.toast')?.innerText.includes('已加入'));
+check('新建相册并加入选中的照片', !(await page.$('.modal')));
 await page.waitForSelector('.selection-bar', { hidden: true });
 check('加好后退出选择', true);
 

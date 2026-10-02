@@ -229,15 +229,17 @@ async function pageWithCorrections(
   correctedFor: (overrides: Map<string, string>) => Promise<Asset[]>,
 ) {
   const overrides = dateOverrides.all();
+  // 只要这个时间之前的（时间线跳到某个月龄）
+  const cap = metadataSearchDto.takenBefore;
   const { assets } = await immich.searchAssets({ metadataSearchDto: { ...metadataSearchDto, order: immich.AssetOrder.Desc, page, size } });
   const nextPage = assets.nextPage ? Number(assets.nextPage) : null;
   let items = assets.items;
   // 超出最后一页的空页：更正过的照片已经在前面的页里出现过了
   const pastEnd = page > 1 && assets.items.length === 0;
   if (overrides.size && !pastEnd) {
-    const upper = page === 1 ? '9999' : (assets.items[0]?.localDateTime ?? '9999');
+    const upper = page === 1 ? (cap ?? '9999') : (assets.items[0]?.localDateTime ?? '9999');
     const lower = nextPage === null ? '0000' : (assets.items.at(-1)?.localDateTime ?? '0000');
-    const extra = (await correctedFor(overrides)).filter((a) => a.localDateTime > lower && a.localDateTime <= upper);
+    const extra = (await correctedFor(overrides)).filter((a) => a.localDateTime > lower && a.localDateTime <= upper && (!cap || a.localDateTime < cap));
     items = assets.items.filter((a) => !overrides.has(a.id)).concat(extra).sort(byTakenAt('desc'));
   }
   return { items: await tidy(items), nextPage };
@@ -247,19 +249,23 @@ async function pageWithCorrections(
  * 时间线：按拍摄时间倒序，按月龄分组。相邻两页可能落在同一个月龄里，前端拼接时合并同名分组即可。
  * withPerson：只看宝宝和某个人物的合照；family：全家福（由 family.ts 算好传进来）
  */
-export async function timeline(baby: Baby, page: number, size: number, filter: { withPerson?: string; family?: () => Promise<Asset[]> } = {}) {
+export async function timeline(baby: Baby, page: number, size: number, filter: { withPerson?: string; family?: () => Promise<Asset[]>; before?: string } = {}) {
   let items: Asset[];
   let nextPage: number | null;
+  // localDateTime 是当地时间（形如 2025-12-22T08:00:00.000Z），直接按字符串比较
+  const cap = filter.before && `${filter.before}T00:00:00.000Z`;
   if (filter.family) {
-    const all = await filter.family();
+    const all = (await filter.family()).filter((a) => !cap || a.localDateTime < cap);
     items = all.slice((page - 1) * size, page * size);
     nextPage = all.length > page * size ? page + 1 : null;
   } else {
     const personIds = filter.withPerson ? [baby.immichPersonId, filter.withPerson] : [baby.immichPersonId];
-    ({ items, nextPage } = await pageWithCorrections({ personIds, visibility: immich.AssetVisibility.Timeline }, page, size, async (o) =>
+    ({ items, nextPage } = await pageWithCorrections({ personIds, visibility: immich.AssetVisibility.Timeline, ...(cap && { takenBefore: cap }) }, page, size, async (o) =>
       (await correctedAssetsOf(baby, o)).filter((a) => !filter.withPerson || (a.people ?? []).some((p) => p.id === filter.withPerson)),
     ));
   }
+  // Immich 按 UTC 时间比较，和当地时间差几个小时，边界上再按当地时间筛一次
+  if (cap) items = items.filter((a) => a.localDateTime < cap);
   const groups: { label: string; months: number; items: AlbumItem[] }[] = [];
   for (const asset of items) {
     const age = computeAge(baby.birthday, asset.localDateTime);

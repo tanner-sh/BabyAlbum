@@ -3,8 +3,8 @@ import { Copy, Eye, EyeOff, Star } from 'lucide-react';
 import { useState } from 'react';
 import { get, request, thumbUrl, useAlbum, type AlbumItem, type DuplicateAsset, type DuplicateGroup, type HiddenAsset } from '../../api';
 import { Lightbox } from '../../components/Lightbox';
-import { ErrorBox, Spinner } from '../../components/ui';
-import { formatBytes, formatDateTime } from '../../format';
+import { attempt, ErrorBox, Spinner } from '../../components/ui';
+import { formatBytes, formatDateTime, formatServerTime } from '../../format';
 
 const toItem = (a: DuplicateAsset): AlbumItem => ({
   id: a.id,
@@ -96,12 +96,8 @@ function DuplicateCard({ group }: { group: DuplicateGroup }) {
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
-    try {
-      await fn();
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
+    if (await attempt(fn)) await refresh();
+    setBusy(false);
   }
 
   return (
@@ -167,14 +163,13 @@ function HiddenList({ items }: { items: HiddenAsset[] }) {
             <span className="muted path">{h.path}</span>
             <span className="muted">
               {h.reason && `${h.reason} · `}
-              {formatDateTime(h.createdAt.replace(' ', 'T'), false)} 隐藏
+              {formatServerTime(h.createdAt, { withTime: false })} 隐藏
             </span>
           </div>
           <button
             className="btn btn-small"
             onClick={async () => {
-              await request('DELETE', `/api/admin/hidden/${h.assetId}`);
-              await refresh();
+              if (await attempt(() => request('DELETE', `/api/admin/hidden/${h.assetId}`), '已恢复显示')) await refresh();
             }}
           >
             <Eye size={14} /> 恢复

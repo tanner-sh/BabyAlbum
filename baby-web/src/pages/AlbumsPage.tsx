@@ -8,7 +8,7 @@ import { PhotoGrid } from '../components/PhotoGrid';
 import { useSelection } from '../components/AlbumPicker';
 import { PhotosTabs } from '../components/SectionTabs';
 import { Slideshow } from '../components/Slideshow';
-import { Empty, ErrorBox, Modal, Spinner } from '../components/ui';
+import { attempt, Empty, ErrorBox, Modal, Spinner, useConfirm } from '../components/ui';
 import { formatDate } from '../format';
 import { ShareEditor } from './SharesPage';
 
@@ -60,9 +60,12 @@ function AlbumEditor({ album, onClose, onSaved }: { album?: PhotoAlbum; onClose:
   const [title, setTitle] = useState(album?.title ?? '');
   const [description, setDescription] = useState(album?.description ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   async function save(e?: FormEvent) {
     e?.preventDefault();
+    if (saving || !title.trim()) return;
     setError(null);
+    setSaving(true);
     try {
       const saved = album
         ? await request<PhotoAlbum>('PUT', `/api/albums/${album.id}`, { title, description })
@@ -72,6 +75,7 @@ function AlbumEditor({ album, onClose, onSaved }: { album?: PhotoAlbum; onClose:
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
+      setSaving(false);
     }
   }
   return (
@@ -84,7 +88,7 @@ function AlbumEditor({ album, onClose, onSaved }: { album?: PhotoAlbum; onClose:
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={!title.trim()} onClick={() => save()}>
+          <button className="btn btn-primary" disabled={!title.trim() || saving} onClick={() => save()}>
             保存
           </button>
         </>
@@ -119,32 +123,50 @@ export function AlbumPage() {
   const [sharing, setSharing] = useState(false);
   const [playing, setPlaying] = useState(false);
   const editable = canEdit(me);
+  const [ask, confirmDialog] = useConfirm();
 
   if (detail.isPending) return <Spinner />;
   if (detail.isError) return <ErrorBox error={detail.error} />;
   const { album, items } = detail.data;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['/api', 'albums'] });
 
-  async function removeSelected() {
-    if (!selection.selected?.size || !confirm(`把选中的 ${selection.selected.size} 张移出相册？照片本身不受影响。`)) return;
-    await request('POST', `/api/albums/${albumId}/assets/remove`, { assetIds: [...selection.selected] });
-    selection.stop();
-    await refresh();
+  function removeSelected() {
+    const ids = [...(selection.selected ?? [])];
+    if (!ids.length) return;
+    ask({
+      title: '移出相册',
+      message: `把选中的 ${ids.length} 张移出相册？照片本身不受影响。`,
+      confirmLabel: '移出',
+      danger: true,
+      action: async () => {
+        await request('POST', `/api/albums/${albumId}/assets/remove`, { assetIds: ids });
+        selection.stop();
+        await refresh();
+      },
+    });
   }
 
   async function setCover() {
     const [first] = selection.selected ?? [];
     if (!first) return;
-    await request('PUT', `/api/albums/${albumId}`, { title: album.title, description: album.description, coverAssetId: first });
+    const ok = await attempt(() => request('PUT', `/api/albums/${albumId}`, { title: album.title, description: album.description, coverAssetId: first }), '已设为封面');
+    if (!ok) return;
     selection.stop();
     await refresh();
   }
 
-  async function remove() {
-    if (!confirm(`删除相册“${album.title}”？只删除相册，照片本身不受影响；这个相册的分享链接也会失效。`)) return;
-    await request('DELETE', `/api/albums/${albumId}`);
-    await refresh();
-    navigate('/albums');
+  function remove() {
+    ask({
+      title: '删除相册',
+      message: `删除相册“${album.title}”？只删除相册，照片本身不受影响；这个相册的分享链接也会失效。`,
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/albums/${albumId}`);
+        await refresh();
+        navigate('/albums');
+      },
+    });
   }
 
   return (
@@ -214,6 +236,7 @@ export function AlbumPage() {
       )}
       {open !== null && <Lightbox items={items} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} />}
       {editing && <AlbumEditor album={album} onClose={() => setEditing(false)} />}
+      {confirmDialog}
       {sharing && <ShareEditor share={null} albumId={albumId} defaultLabel={album.title} onClose={() => setSharing(false)} />}
       {playing && (
         <Slideshow

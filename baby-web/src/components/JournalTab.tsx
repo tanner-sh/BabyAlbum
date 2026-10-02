@@ -5,7 +5,7 @@ import { Link } from 'react-router';
 import { request, thumbUrl, useAlbum, useDay, useJournal, type AlbumItem, type Baby, type JournalEntry } from '../api';
 import { formatDate, today } from '../format';
 import { Lightbox } from './Lightbox';
-import { Empty, ErrorBox, Modal, Spinner } from './ui';
+import { Empty, ErrorBox, Modal, Spinner, useConfirm } from './ui';
 
 /** 日记：给某一天写几句话，和当天的照片放在一起 */
 export function JournalTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (item: AlbumItem) => void }) {
@@ -108,11 +108,20 @@ function JournalEditor({ baby, draft, onClose }: { baby: Baby; draft: Partial<Jo
     }
   }
 
-  async function remove() {
-    if (!draft.id || !confirm('删除这篇日记？')) return;
-    await request('DELETE', `/api/journal/${draft.id}`);
-    await queryClient.invalidateQueries({ queryKey: [album.base, 'journal', baby.id] });
-    onClose();
+  const [ask, confirmDialog] = useConfirm();
+  function remove() {
+    if (!draft.id) return;
+    ask({
+      title: '删除日记',
+      message: '删除这篇日记？删除后找不回来。',
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/journal/${draft.id}`);
+        await queryClient.invalidateQueries({ queryKey: [album.base, 'journal', baby.id] });
+        onClose();
+      },
+    });
   }
 
   return (
@@ -148,6 +157,7 @@ function JournalEditor({ baby, draft, onClose }: { baby: Baby; draft: Partial<Jo
         </label>
         {error && <div className="error-box">{error}</div>}
       </div>
+      {confirmDialog}
     </Modal>
   );
 }

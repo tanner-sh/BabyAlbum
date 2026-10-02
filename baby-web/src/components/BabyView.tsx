@@ -1,5 +1,5 @@
 import { CalendarHeart, Columns2, Flag, Images, NotebookPen, Ruler, Sparkles, Sprout } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { useAlbum, useBabies, type Baby } from '../api';
 import { CompareView } from '../pages/ComparePage';
@@ -59,7 +59,24 @@ export function BabyView({ baby, photosExtra }: { baby: Baby; photosExtra?: Reac
   const views = tab === 'photos' ? [] : VIEWS[tab].filter((v) => v.value !== 'compare' || (album.base === '/api' && (babies.data?.length ?? 0) >= 2));
   const view = (views.find((v) => v.value === (params.get('view') ?? legacyView))?.value ?? views[0]?.value ?? null) as View | null;
 
-  const go = (next: { tab: Tab; view?: View }) =>
+  // 切换标签时记住每个标签滚到哪了；时间线切走后不卸载，回来还在原来的位置
+  const key = `${tab}:${view ?? ''}`;
+  const scrolls = useRef(new Map<string, number>());
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [photosMounted, setPhotosMounted] = useState(tab === 'photos');
+  if (tab === 'photos' && !photosMounted) setPhotosMounted(true);
+  const lastKey = useRef(key);
+  useLayoutEffect(() => {
+    if (lastKey.current === key) return;
+    lastKey.current = key;
+    const saved = scrolls.current.get(key);
+    // 没来过的标签：从标签栏开始看
+    const tabsTop = (tabsRef.current?.getBoundingClientRect().top ?? 0) + window.scrollY - 64;
+    window.scrollTo(0, saved ?? Math.min(window.scrollY, Math.max(0, tabsTop)));
+  }, [key]);
+
+  const go = (next: { tab: Tab; view?: View }) => {
+    scrolls.current.set(key, window.scrollY);
     setParams(
       (p) => {
         // 换标签时去掉回顾、对比的选择（kind、index、m）
@@ -71,6 +88,7 @@ export function BabyView({ baby, photosExtra }: { baby: Baby; photosExtra?: Reac
       },
       { replace: true },
     );
+  };
 
   const onMilestone = album.readOnly
     ? undefined
@@ -78,6 +96,8 @@ export function BabyView({ baby, photosExtra }: { baby: Baby; photosExtra?: Reac
 
   return (
     <>
+      {/* 标签栏是吸顶的，不能包在别的元素里；用一个空元素记下它原来的位置 */}
+      <div ref={tabsRef} />
       <Tabs value={tab} onChange={(t) => go({ tab: t })} options={TABS} />
       <div className="tab-panel">
         {views.length > 1 && (
@@ -90,11 +110,11 @@ export function BabyView({ baby, photosExtra }: { baby: Baby; photosExtra?: Reac
             ))}
           </div>
         )}
-        {tab === 'photos' && (
-          <>
+        {photosMounted && (
+          <div hidden={tab !== 'photos'}>
             {photosExtra}
             <TimelineTab key={baby.id} baby={baby} onMilestone={onMilestone} />
-          </>
+          </div>
         )}
         {view === 'highlights' && <ReviewTab key={baby.id} baby={baby} onMilestone={onMilestone} />}
         {view === 'growth' && <GrowthTab key={baby.id} baby={baby} onMilestone={onMilestone} />}

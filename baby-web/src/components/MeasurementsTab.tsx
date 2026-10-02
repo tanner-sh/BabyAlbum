@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { request, useAlbum, useMeasurements, type Baby, type Measurement } from '../api';
 import { daysBetween, formatDate, today } from '../format';
 import { formatPercentile, percentile, PERCENTILES, valueAt, WHO_MAX_DAY, type Indicator } from '../who';
-import { Empty, ErrorBox, Modal, Spinner } from './ui';
+import { Empty, ErrorBox, Modal, Spinner, useConfirm } from './ui';
 
 type Field = 'heightCm' | 'weightKg' | 'headCm';
 
@@ -211,11 +211,13 @@ function MeasurementEditor({ baby, draft, onClose }: { baby: Baby; draft: Partia
   const [head, setHead] = useState(draft.headCm?.toString() ?? '');
   const [note, setNote] = useState(draft.note ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const num = (s: string) => (s.trim() ? Number(s) : null);
   const valid = [height, weight, head].some((v) => v.trim()) && [height, weight, head].every((v) => !v.trim() || Number.isFinite(Number(v)));
 
   async function save() {
     setError(null);
+    setSaving(true);
     try {
       const body = { date, heightCm: num(height), weightKg: num(weight), headCm: num(head), note };
       if (draft.id) await request('PUT', `/api/measurements/${draft.id}`, body);
@@ -224,14 +226,24 @@ function MeasurementEditor({ baby, draft, onClose }: { baby: Baby; draft: Partia
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      setSaving(false);
     }
   }
 
-  async function remove() {
-    if (!draft.id || !confirm('删除这条记录？')) return;
-    await request('DELETE', `/api/measurements/${draft.id}`);
-    await queryClient.invalidateQueries({ queryKey: [album.base, 'measurements', baby.id] });
-    onClose();
+  const [ask, confirmDialog] = useConfirm();
+  function remove() {
+    if (!draft.id) return;
+    ask({
+      title: '删除记录',
+      message: '删除这条成长数据？',
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/measurements/${draft.id}`);
+        await queryClient.invalidateQueries({ queryKey: [album.base, 'measurements', baby.id] });
+        onClose();
+      },
+    });
   }
 
   return (
@@ -250,7 +262,7 @@ function MeasurementEditor({ baby, draft, onClose }: { baby: Baby; draft: Partia
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={!valid} onClick={save}>
+          <button className="btn btn-primary" disabled={!valid || saving} onClick={save}>
             保存
           </button>
         </>
@@ -282,6 +294,7 @@ function MeasurementEditor({ baby, draft, onClose }: { baby: Baby; draft: Partia
         </label>
         {error && <div className="error-box">{error}</div>}
       </div>
+      {confirmDialog}
     </Modal>
   );
 }

@@ -18,9 +18,13 @@ type Props = {
   onMilestone?: (item: AlbumItem) => void;
   /** 打开时直接显示点赞留言（从互动提醒点进来） */
   initialSocial?: boolean;
+  /** 后面还有没加载的照片（计数显示成“30 / 150+”） */
+  hasMore?: boolean;
+  /** 大图本身就是一个页面（单张照片页）时不记浏览器历史，关闭由页面自己处理 */
+  standalone?: boolean;
 };
 
-export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, initialSocial }: Props) {
+export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, initialSocial, hasMore, standalone }: Props) {
   const album = useAlbum();
   const queryClient = useQueryClient();
   const item = items[index];
@@ -33,8 +37,9 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
   // 收藏状态在本地立即更新，不等列表重新加载
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const info = useAssetInfo(showInfo ? item?.id : null);
-  // 可能是从弹窗里打开的（比如人物弹窗），Esc 只关大图
-  const isTop = useLayer();
+  // 可能是从弹窗里打开的（比如人物弹窗），Esc、返回键只关大图
+  const isTop = useLayer(onClose, { history: !standalone });
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const go = (delta: number) => {
     const next = index + delta;
@@ -59,6 +64,14 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // “更多”菜单：点菜单外面就收起
+  useEffect(() => {
+    if (!showMenu) return;
+    const onDown = (e: PointerEvent) => !menuRef.current?.contains(e.target as Node) && setShowMenu(false);
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [showMenu]);
 
   // 预加载相邻的两张
   useEffect(() => {
@@ -115,7 +128,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
               )}
             </button>
           )}
-          <div className="menu-wrap">
+          <div className="menu-wrap" ref={menuRef}>
             <button className={`icon-btn light ${showMenu ? 'active' : ''}`} onClick={() => setShowMenu((v) => !v)} aria-label="更多" aria-expanded={showMenu}>
               <MoreHorizontal size={22} />
             </button>
@@ -226,6 +239,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
 
       <div className="lightbox-counter">
         {index + 1} / {items.length}
+        {hasMore && '+'}
       </div>
     </div>
   );
@@ -257,6 +271,8 @@ function Stage({ item, onPrev, onNext, onClose }: { item: AlbumItem; onPrev: () 
   const isLive = !isVideo && (!!item.livePhotoVideoId || !!liveCheck.data?.videoId);
   const [livePlaying, setLivePlaying] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+  // 大图还没加载好时，先用列表里已经加载过的小图垫着，不黑屏
+  const [loaded, setLoaded] = useState(false);
 
   // 缩放和位移直接写到 style 上，不经过 React 渲染，手势才跟手
   const view = useRef({ scale: 1, x: 0, y: 0 });
@@ -442,12 +458,13 @@ function Stage({ item, onPrev, onNext, onClose }: { item: AlbumItem; onPrev: () 
       onPointerCancel={onPointerUp}
       onContextMenu={(e) => isLive && e.preventDefault()}
     >
+      {!isVideo && !loaded && <img className="lightbox-placeholder" src={thumbUrl(album, item.id)} alt="" aria-hidden="true" />}
       <div ref={mediaRef} className="lightbox-media">
         {isVideo ? (
           <video src={videoUrl(album, item.id)} poster={thumbUrl(album, item.id, 'preview')} controls autoPlay playsInline />
         ) : (
           <>
-            <img src={thumbUrl(album, item.id, 'preview')} alt={item.fileName} draggable={false} />
+            <img src={thumbUrl(album, item.id, 'preview')} alt={item.fileName} draggable={false} onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} />
             {isLive && livePlaying && !zoomed && (
               <video className="live-video" src={liveUrl(album, item.id)} autoPlay muted playsInline onEnded={() => setLivePlaying(false)} onError={() => setLivePlaying(false)} />
             )}

@@ -1,16 +1,20 @@
-import { Flag, ImageOff, Users } from 'lucide-react';
+import { ArrowUpToLine, CalendarSearch, Flag, ImageOff, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAlbum, useCompanions, useMilestones, useTimeline, type AlbumItem, type Baby, type TimelineGroup } from '../api';
+import { thumbUrl, useAlbum, useCompanions, useGrowth, useMilestones, useTimeline, type AlbumItem, type Baby, type TimelineGroup } from '../api';
 import { ageMonths } from '../format';
 import { Lightbox } from './Lightbox';
 import { PhotoGrid } from './PhotoGrid';
 import { SelectionBar, useSelection } from './AlbumPicker';
-import { Avatar, Empty, ErrorBox, Spinner } from './ui';
+import { Avatar, Empty, ErrorBox, Modal, Spinner } from './ui';
 
 export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (item: AlbumItem) => void }) {
   const album = useAlbum();
   const [withWho, setWithWho] = useState<string | null>(null);
-  const timeline = useTimeline(baby.id, withWho);
+  // 跳到某个月龄：从那个月龄的最后一天往前看
+  const [jump, setJump] = useState<{ label: string; before: string } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const top = useRef<HTMLDivElement>(null);
+  const timeline = useTimeline(baby.id, withWho, jump?.before ?? null);
   const selection = useSelection();
   const canSelect = !album.readOnly && album.base === '/api';
   const milestones = useMilestones(baby.id);
@@ -54,15 +58,40 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  function jumpTo(next: { label: string; before: string } | null) {
+    setJump(next);
+    setPicking(false);
+    // 回到时间线开头
+    top.current?.scrollIntoView({ block: 'start' });
+  }
+
   const filter = (
-    <div className="timeline-tools">
-      <CompanionFilter baby={baby} value={withWho} onChange={setWithWho} />
-      {canSelect && !selection.selected && (
-        <button className="btn btn-small select-btn" onClick={selection.start}>
-          选择
-        </button>
+    <>
+      <div className="timeline-tools" ref={top}>
+        <CompanionFilter baby={baby} value={withWho} onChange={setWithWho} />
+        <span className="timeline-buttons">
+          <button className="btn btn-small" onClick={() => setPicking(true)}>
+            <CalendarSearch size={14} /> 跳到…
+          </button>
+          {canSelect && !selection.selected && (
+            <button className="btn btn-small select-btn" onClick={selection.start}>
+              选择
+            </button>
+          )}
+        </span>
+      </div>
+      {jump && (
+        <div className="jump-banner">
+          <span>
+            正在看 <strong>{jump.label}</strong> 及更早的照片
+          </span>
+          <button className="btn btn-small" onClick={() => jumpTo(null)}>
+            <ArrowUpToLine size={14} /> 回到最新
+          </button>
+        </div>
       )}
-    </div>
+      {picking && <JumpPicker baby={baby} onPick={jumpTo} onClose={() => setPicking(false)} />}
+    </>
   );
   if (timeline.isPending) return (
     <>
@@ -70,7 +99,12 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
       <Spinner />
     </>
   );
-  if (timeline.isError) return <ErrorBox error={timeline.error} />;
+  if (timeline.isError) return (
+    <>
+      {filter}
+      <ErrorBox error={timeline.error} />
+    </>
+  );
   if (!flat.length && withWho) {
     return (
       <>
@@ -122,9 +156,39 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
           }}
           onClose={() => setOpen(null)}
           onMilestone={onMilestone}
+          hasMore={hasNextPage}
         />
       )}
     </>
+  );
+}
+
+/** 跳到某个月龄：按月龄排好的封面，最新的在前面 */
+function JumpPicker({ baby, onPick, onClose }: { baby: Baby; onPick: (jump: { label: string; before: string } | null) => void; onClose: () => void }) {
+  const album = useAlbum();
+  const growth = useGrowth(baby.id);
+  const cells = growth.data ?? [];
+  return (
+    <Modal title="跳到哪个月龄？" onClose={onClose} wide>
+      {growth.isPending ? (
+        <Spinner label="正在整理每个月的照片…" />
+      ) : growth.isError ? (
+        <ErrorBox error={growth.error} />
+      ) : (
+        <div className="jump-grid">
+          {[...cells].reverse().map((c) => {
+            // 这个月龄的下一个月龄开始那天；最近这个月就是“最新”
+            const next = cells[c.months + 1]?.from;
+            return (
+              <button key={c.months} type="button" className="jump-cell" disabled={!c.cover} onClick={() => onPick(next ? { label: c.label, before: next } : null)}>
+                {c.cover ? <img src={thumbUrl(album, c.cover.id)} alt="" loading="lazy" /> : <span className="jump-empty" />}
+                <span>{c.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
   );
 }
 

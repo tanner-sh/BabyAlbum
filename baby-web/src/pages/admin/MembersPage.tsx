@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Navigate, useOutletContext } from 'react-router';
 import { get, request, ROLE_HINTS, ROLE_LABELS, useBabies, type AdminInvite, type AdminUser, type Me, type Role } from '../../api';
 import { FamilyTabs } from '../../components/SectionTabs';
-import { BabyAccessPicker, CopyButton, ErrorBox, Modal, Spinner, Toggle } from '../../components/ui';
-import { formatDate, formatDateTime } from '../../format';
+import { BabyAccessPicker, CopyButton, ErrorBox, Modal, Spinner, toast, Toggle, useConfirm } from '../../components/ui';
+import { formatDate, formatServerTime } from '../../format';
 
 const ROLES: Role[] = ['admin', 'member', 'viewer'];
 const inviteUrl = (token: string) => `${window.location.origin}/invite/${token}`;
@@ -31,22 +31,34 @@ function MembersList() {
   const [editing, setEditing] = useState<AdminUser | 'new' | null>(null);
   const [resetting, setResetting] = useState<AdminUser | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [ask, confirmDialog] = useConfirm();
 
   const babyNames = (ids: number[] | null) => (ids === null ? '全部宝宝' : ids.map((id) => babies.data?.find((b) => b.id === id)?.name ?? '?').join('、'));
 
-  async function remove(u: AdminUser) {
-    if (!confirm(`删除成员“${u.displayName}”？`)) return;
-    try {
-      await request('DELETE', `/api/admin/users/${u.id}`);
-      await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : '删除失败');
-    }
+  function remove(u: AdminUser) {
+    ask({
+      title: '删除成员',
+      message: `删除成员“${u.displayName}”？TA 将不能再登录。`,
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/admin/users/${u.id}`);
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      },
+    });
   }
 
-  async function removeInvite(token: string) {
-    await request('DELETE', `/api/admin/invites/${token}`);
-    await queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] });
+  function removeInvite(token: string, note: string) {
+    ask({
+      title: '作废邀请链接',
+      message: `作废“${note || '邀请'}”？作废后这个链接就不能用来注册了。`,
+      confirmLabel: '作废',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/admin/invites/${token}`);
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] });
+      },
+    });
   }
 
   if (users.isPending || babies.isPending) return <Spinner />;
@@ -81,7 +93,7 @@ function MembersList() {
               </strong>
               <span className="muted">
                 {ROLE_LABELS[u.role]}
-                {u.role !== 'admin' && ` · ${babyNames(u.babyIds)}`} · {u.lastLoginAt ? `最近登录 ${formatDateTime(u.lastLoginAt.replace(' ', 'T'))}` : '还没登录过'}
+                {u.role !== 'admin' && ` · ${babyNames(u.babyIds)}`} · {u.lastLoginAt ? `最近登录 ${formatServerTime(u.lastLoginAt)}` : '还没登录过'}
               </span>
             </div>
             <div className="share-actions">
@@ -116,7 +128,7 @@ function MembersList() {
                 </div>
                 <div className="share-actions">
                   <CopyButton text={inviteUrl(i.token)} />
-                  <button className="icon-btn" onClick={() => removeInvite(i.token)} aria-label="作废">
+                  <button className="icon-btn" onClick={() => removeInvite(i.token, i.note)} aria-label="作废">
                     <Trash2 size={18} />
                   </button>
                 </div>
@@ -126,6 +138,7 @@ function MembersList() {
         </section>
       )}
 
+      {confirmDialog}
       {editing && <UserEditor user={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {resetting && <ResetPassword user={resetting} onClose={() => setResetting(null)} />}
       {inviting && <InviteCreator onClose={() => setInviting(false)} />}
@@ -157,8 +170,10 @@ function UserEditor({ user, onClose }: { user: AdminUser | null; onClose: () => 
   const [disabled, setDisabled] = useState(user?.disabled ?? false);
   const [error, setError] = useState<string | null>(null);
 
+  const [saving, setSaving] = useState(false);
   async function save() {
     setError(null);
+    setSaving(true);
     try {
       const access = role === 'admin' ? null : babyIds;
       if (user) await request('PATCH', `/api/admin/users/${user.id}`, { displayName, role, babyIds: access, disabled });
@@ -167,6 +182,7 @@ function UserEditor({ user, onClose }: { user: AdminUser | null; onClose: () => 
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      setSaving(false);
     }
   }
 
@@ -180,7 +196,7 @@ function UserEditor({ user, onClose }: { user: AdminUser | null; onClose: () => 
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" onClick={save} disabled={!displayName.trim() || (!user && (!username.trim() || password.length < 8))}>
+          <button className="btn btn-primary" onClick={save} disabled={saving || !displayName.trim() || (!user && (!username.trim() || password.length < 8))}>
             保存
           </button>
         </>
@@ -223,12 +239,17 @@ function UserEditor({ user, onClose }: { user: AdminUser | null; onClose: () => 
 function ResetPassword({ user, onClose }: { user: AdminUser; onClose: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   async function save() {
+    setError(null);
+    setSaving(true);
     try {
       await request('PUT', `/api/admin/users/${user.id}/password`, { password });
+      toast(`已重置 ${user.displayName} 的密码`);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      setSaving(false);
     }
   }
   return (
@@ -241,7 +262,7 @@ function ResetPassword({ user, onClose }: { user: AdminUser; onClose: () => void
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={password.length < 8} onClick={save}>
+          <button className="btn btn-primary" disabled={saving || password.length < 8} onClick={save}>
             保存
           </button>
         </>
@@ -268,10 +289,19 @@ function InviteCreator({ onClose }: { onClose: () => void }) {
   const [days, setDays] = useState(7);
   const [created, setCreated] = useState<AdminInvite | null>(null);
 
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   async function create() {
-    const invite = await request<AdminInvite>('POST', '/api/admin/invites', { note, role, babyIds: role === 'admin' ? null : babyIds, expiresInDays: days });
-    await queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] });
-    setCreated(invite);
+    setBusy(true);
+    setError(null);
+    try {
+      const invite = await request<AdminInvite>('POST', '/api/admin/invites', { note, role, babyIds: role === 'admin' ? null : babyIds, expiresInDays: days });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'invites'] });
+      setCreated(invite);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '生成失败');
+    }
+    setBusy(false);
   }
 
   return (
@@ -292,7 +322,7 @@ function InviteCreator({ onClose }: { onClose: () => void }) {
             <button className="btn" onClick={onClose}>
               取消
             </button>
-            <button className="btn btn-primary" onClick={create}>
+            <button className="btn btn-primary" disabled={busy} onClick={create}>
               生成邀请链接
             </button>
           </>
@@ -333,6 +363,7 @@ function InviteCreator({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       )}
+      {error && <div className="error-box">{error}</div>}
     </Modal>
   );
 }

@@ -6,7 +6,7 @@ import { canEdit, request, useBabies, type Baby, type Me, type Sex } from '../ap
 import { BabyView } from '../components/BabyView';
 import { MergeHint, SexPicker } from '../components/ClaimBaby';
 import { DateIssuesBanner } from '../components/DateFix';
-import { Avatar, Empty, ErrorBox, Modal, Spinner } from '../components/ui';
+import { Avatar, Empty, ErrorBox, Modal, Spinner, useConfirm } from '../components/ui';
 import { formatDate } from '../format';
 
 export function BabyPage() {
@@ -58,8 +58,12 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
   const [birthday, setBirthday] = useState(baby.birthday);
   const [sex, setSex] = useState<Sex | null>(baby.sex);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [ask, confirmDialog] = useConfirm();
 
   async function save() {
+    setError(null);
+    setSaving(true);
     try {
       await request('PATCH', `/api/babies/${baby.id}`, { name, birthday, sex });
       // 生日变了，所有按年龄计算的数据都要重新加载
@@ -67,14 +71,22 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      setSaving(false);
     }
   }
 
-  async function remove() {
-    if (!confirm(`从宝宝相册中移除${baby.name}？\n只删除宝宝档案和里程碑，照片不受影响。`)) return;
-    await request('DELETE', `/api/babies/${baby.id}`);
-    await queryClient.invalidateQueries({ queryKey: ['babies'] });
-    navigate('/');
+  function remove() {
+    ask({
+      title: `移除${baby.name}`,
+      message: `从宝宝相册中移除${baby.name}？只删除宝宝档案和里程碑，照片不受影响。`,
+      confirmLabel: '移除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/babies/${baby.id}`);
+        await queryClient.invalidateQueries({ queryKey: ['babies'] });
+        navigate('/');
+      },
+    });
   }
 
   return (
@@ -91,7 +103,7 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={!name.trim() || !birthday} onClick={save}>
+          <button className="btn btn-primary" disabled={!name.trim() || !birthday || saving} onClick={save}>
             保存
           </button>
         </>
@@ -112,6 +124,7 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
         </div>
         {error && <div className="error-box">{error}</div>}
       </div>
+      {confirmDialog}
     </Modal>
   );
 }

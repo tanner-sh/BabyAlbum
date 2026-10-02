@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { get, request, type AppSettings, type ImmichSettings } from '../../api';
-import { ErrorBox, Spinner, Toggle } from '../../components/ui';
+import { ErrorBox, Spinner, Toggle, useConfirm } from '../../components/ui';
 
 // Immich 的系统设置：只开放常用的几项，用中文说明。保存后立即生效，不需要重启或改 Docker 配置
 
@@ -91,6 +91,7 @@ function AppSettingsSection() {
   const [key, setKey] = useState<string | null>(null);
   const [askKey, setAskKey] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [ask, confirmDialog] = useConfirm();
   if (!app.data) return app.isError ? <ErrorBox error={app.error} /> : null;
   const current = app.data;
   const keyValue = key ?? current.tiandituKey ?? '';
@@ -140,16 +141,23 @@ function AppSettingsSection() {
     }
   }
 
-  async function removeKey() {
-    if (!confirm('删除天地图的 Key？正在用天地图的话会换回 OpenStreetMap。')) return;
-    await save({ tiandituKey: null, mapTiles: current.mapTiles === 'tianditu' ? 'osm' : current.mapTiles }, '已删除天地图的 Key');
-    setKey(null);
+  function removeKey() {
+    ask({
+      title: '删除天地图的 Key',
+      message: '删除天地图的 Key？正在用天地图的话会换回 OpenStreetMap。',
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        if (await save({ tiandituKey: null, mapTiles: current.mapTiles === 'tianditu' ? 'osm' : current.mapTiles }, '已删除天地图的 Key')) setKey(null);
+      },
+    });
   }
 
   const showKey = askKey || current.mapTiles === 'tianditu' || !!current.tiandituKey;
 
   return (
     <Section title="地图" hint="“搜索 · 地图”里按拍摄地点看照片时用的底图。改了马上生效。">
+      {confirmDialog}
       <div className="role-picker">
         {MAP_TILES.map((t) => (
           <button

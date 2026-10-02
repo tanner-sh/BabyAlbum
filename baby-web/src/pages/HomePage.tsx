@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { useNavigate, useOutletContext } from 'react-router';
 import { get, request, thumbUrl, useAlbum, useBabies, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
 import { ClaimBanner, SexPicker } from '../components/ClaimBaby';
+import { FaceStrip } from '../components/PersonPhotos';
 import { RecentInteractions } from '../components/RecentInteractions';
 import { TodoCard } from '../components/TodoCard';
 import { ReviewBanner } from '../components/ReviewTab';
@@ -111,6 +112,7 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
   const [birthday, setBirthday] = useState('');
   const [sex, setSex] = useState<Sex | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   function choose(p: AdminPerson) {
     setPerson(p);
@@ -120,6 +122,7 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
 
   async function save() {
     setError(null);
+    setSaving(true);
     try {
       // 同时给人物命名、设生日（人物列表里也能看到）
       await request('PUT', `/api/admin/people/${person!.id}`, { name, birthDate: birthday });
@@ -128,6 +131,7 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
       navigate(`/baby/${baby.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      setSaving(false);
     }
   }
 
@@ -144,7 +148,7 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             取消
           </button>
-          <button className="btn btn-primary" disabled={!person || !name.trim() || !birthday} onClick={save}>
+          <button className="btn btn-primary" disabled={!person || !name.trim() || !birthday || saving} onClick={save}>
             保存
           </button>
         </>
@@ -174,6 +178,8 @@ function AddBabyModal({ onClose }: { onClose: () => void }) {
         </div>
         {person && (
           <>
+            {/* 头像可能看不清，确认一下选对了人 */}
+            <FaceStrip key={person.id} person={person} title="确认一下：TA 的照片" size={8} hideAvatar />
             <label className="field">
               <span>2. 名字</span>
               <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50} />

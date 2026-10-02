@@ -10,7 +10,7 @@ import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, use
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
 import { importProgress } from '../import-progress.ts';
-import { skipPerson, unnamedPeople } from '../family.ts';
+import { skipPerson, unnamedPeople, unskipPerson } from '../family.ts';
 import { healthReport, runHealthChecks } from '../health.ts';
 import { MAP_TILES, mapTiles, tiandituKey } from '../map.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
@@ -682,6 +682,12 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/api/admin/people/:id/skip', async (req) => {
     const { id } = uuidParams.parse(req.params);
     skipPerson(id);
+    return { ok: true };
+  });
+
+  app.delete('/api/admin/people/:id/skip', async (req) => {
+    const { id } = uuidParams.parse(req.params);
+    unskipPerson(id);
     return { ok: true };
   });
 

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Navigate, useOutletContext } from 'react-router';
 import { canEdit, get, request, useAlbums, useBabies, type Me, type Share } from '../api';
 import { FamilyTabs } from '../components/SectionTabs';
-import { CopyButton, Empty, ErrorBox, Modal, Spinner, Toggle } from '../components/ui';
+import { CopyButton, Empty, ErrorBox, Modal, Spinner, Toggle, useConfirm } from '../components/ui';
 import { formatDate } from '../format';
 
 const EXPIRY = [
@@ -30,6 +30,7 @@ function SharesList() {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Share | 'new' | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const [ask, confirmDialog] = useConfirm();
 
   if (shares.isPending || babies.isPending) return <Spinner />;
   if (shares.isError) return <ErrorBox error={shares.error} />;
@@ -47,10 +48,17 @@ function SharesList() {
     setTimeout(() => setCopied(null), 2000);
   }
 
-  async function remove(s: Share) {
-    if (!confirm(`停用“${s.label}”的分享链接？停用后对方将无法再打开。`)) return;
-    await request('DELETE', `/api/shares/${s.id}`);
-    await queryClient.invalidateQueries({ queryKey: ['shares'] });
+  function remove(s: Share) {
+    ask({
+      title: '停用分享链接',
+      message: `停用“${s.label}”的分享链接？停用后对方将无法再打开。`,
+      confirmLabel: '停用',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/shares/${s.id}`);
+        await queryClient.invalidateQueries({ queryKey: ['shares'] });
+      },
+    });
   }
 
   return (
@@ -130,6 +138,7 @@ function SharesList() {
         </ul>
       )}
       {editing && <ShareEditor share={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {confirmDialog}
     </>
   );
 }
@@ -153,9 +162,11 @@ export function ShareEditor({ share, albumId: albumIdProp, defaultLabel, onClose
 
   // 新设密码时必须填；原来就有密码的，不填表示不改
   const passwordMissing = usePassword && !password && !share?.hasPassword;
+  const [saving, setSaving] = useState(false);
 
   async function save() {
     setError(null);
+    setSaving(true);
     try {
       const keepExpiry = share && days === -1;
       const remainingDays = share?.expiresAt ? Math.max(1, Math.ceil((Date.parse(share.expiresAt) - Date.now()) / 86_400_000)) : undefined;
@@ -180,6 +191,7 @@ export function ShareEditor({ share, albumId: albumIdProp, defaultLabel, onClose
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+      setSaving(false);
     }
   }
 
@@ -198,7 +210,7 @@ export function ShareEditor({ share, albumId: albumIdProp, defaultLabel, onClose
               完成
             </button>
           ) : (
-            <button className="btn btn-primary" disabled={!label.trim() || (albumId === null && !selected.length) || passwordMissing} onClick={save}>
+            <button className="btn btn-primary" disabled={saving || !label.trim() || (albumId === null && !selected.length) || passwordMissing} onClick={save}>
               {share ? '保存' : '创建'}
             </button>
           )}

@@ -14,7 +14,7 @@ fi
 (cd tests && [ -d node_modules ] || npm ci --no-audit --no-fund)
 
 failed=0
-for t in api.test.ts ui.test.mjs ui-map.test.mjs ui-tianditu.test.mjs ui-new.test.mjs; do
+for t in api.test.ts ui.test.mjs ui-map.test.mjs ui-tianditu.test.mjs ui-new.test.mjs ui-ux.test.mjs; do
   echo
   echo "==================== $t"
   node --disable-warning=ExperimentalWarning "tests/$t" || failed=1

@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby as BabyIcon, Images, Merge, RefreshCw } from 'lucide-react';
+import { Baby as BabyIcon, Images, Merge } from 'lucide-react';
 import { useState } from 'react';
-import { get, request, type AdminPerson, type PersonFace, type Sex, type SimilarPerson } from '../../api';
+import { get, request, type AdminPerson, type Sex, type SimilarPerson } from '../../api';
 import { SexPicker } from '../../components/ClaimBaby';
 import { FamilyIntro } from '../../components/FamilyIntro';
-import { Lightbox } from '../../components/Lightbox';
+import { CompareModal, FaceStrip } from '../../components/PersonPhotos';
 import { Avatar, ErrorBox, Modal, Spinner, Toggle } from '../../components/ui';
 
 /** 人物：人脸识别的结果。命名、设生日、合并（同一个人被拆成了几个）、设为宝宝 */
@@ -194,116 +194,3 @@ function PersonModal({ person, others, onClose }: { person: AdminPerson; others:
   );
 }
 
-/** 合并前对比：两边各随机取几张照片，只看脸，判断是不是同一个人 */
-function CompareModal({
-  person,
-  name,
-  other,
-  selected,
-  onPick,
-  onClose,
-}: {
-  person: AdminPerson;
-  name: string;
-  other: AdminPerson;
-  selected: boolean;
-  onPick: (on: boolean) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal
-      title="是同一个人吗？"
-      onClose={onClose}
-      wide
-      footer={
-        <>
-          <span className="spacer" />
-          {selected ? (
-            <button className="btn" onClick={() => onPick(false)}>
-              不是，取消勾选
-            </button>
-          ) : (
-            <button className="btn" onClick={onClose}>
-              不是
-            </button>
-          )}
-          <button className="btn btn-primary" onClick={() => onPick(true)}>
-            是同一个人，勾选合并
-          </button>
-        </>
-      }
-    >
-      <FaceStrip person={person} title={name || person.name || '这个人物'} size={8} />
-      <FaceStrip person={other} title={other.name || '未命名'} size={16} />
-    </Modal>
-  );
-}
-
-function FaceStrip({ person, title, size, hideAvatar }: { person: AdminPerson; title: string; size: number; hideAvatar?: boolean }) {
-  const faces = useQuery({
-    queryKey: ['admin', 'people', 'faces', person.id, size],
-    queryFn: () => get<PersonFace[]>(`/api/admin/people/${person.id}/faces?size=${size}`),
-    staleTime: Infinity,
-  });
-  const [open, setOpen] = useState<number | null>(null);
-  return (
-    <section className="face-strip">
-      <div className="face-strip-head">
-        {!hideAvatar && <Avatar baby={{ name: title, thumbnailUrl: person.thumbnailUrl }} size={32} />}
-        <strong>{title}</strong>
-        <span className="muted">{person.assets.toLocaleString()} 张</span>
-        <span className="spacer" />
-        <button className="btn btn-small" disabled={faces.isFetching} onClick={() => faces.refetch()}>
-          <RefreshCw size={14} /> 换一批
-        </button>
-      </div>
-      {faces.isPending ? (
-        <Spinner label="正在找照片…" />
-      ) : faces.isError ? (
-        <ErrorBox error={faces.error} />
-      ) : !faces.data.length ? (
-        <p className="muted">没有找到照片</p>
-      ) : (
-        <div className="face-grid">
-          {faces.data.map((f, i) => (
-            <FaceCrop key={f.id} face={f} onClick={() => setOpen(i)} />
-          ))}
-        </div>
-      )}
-      {open !== null && faces.data && (
-        // 盖在人物弹窗上面
-        <div className="lightbox-layer">
-          <Lightbox items={faces.data} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} />
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** 从照片里裁出这个人的脸（留一些边，能看到发型和脸型）；找不到脸的位置就显示整张照片 */
-function FaceCrop({ face, onClick }: { face: PersonFace; onClick: () => void }) {
-  const url = `/api/assets/${face.id}/thumbnail?size=preview`;
-  const title = `${new Date(face.takenAt).toLocaleDateString('zh-CN')}，点开看整张照片`;
-  if (!face.box) return <button type="button" className="face-crop" onClick={onClick} title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
-  const { x, y, w, h, ratio } = face.box;
-  // 以照片高度为 1，宽度为 ratio；取一个包住脸、放大 1.8 倍的正方形，不超出照片
-  const side = Math.min(Math.max(w * ratio, h) * 1.8, ratio, 1);
-  const sw = side / ratio;
-  const sh = side;
-  const left = Math.min(Math.max(x + w / 2 - sw / 2, 0), 1 - sw);
-  const top = Math.min(Math.max(y + h / 2 - sh / 2, 0), 1 - sh);
-  const pos = (start: number, span: number) => (span >= 1 ? 0 : (start / (1 - span)) * 100);
-  return (
-    <button
-      type="button"
-      className="face-crop"
-      onClick={onClick}
-      title={title}
-      style={{
-        backgroundImage: `url(${url})`,
-        backgroundSize: `${100 / sw}% ${100 / sh}%`,
-        backgroundPosition: `${pos(left, sw)}% ${pos(top, sh)}%`,
-      }}
-    />
-  );
-}

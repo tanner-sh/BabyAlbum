@@ -24,6 +24,7 @@ import { PhotosPage } from './pages/PhotosPage';
 import { Layout } from './pages/Layout';
 import { SharePage } from './pages/SharePage';
 import { SharesPage } from './pages/SharesPage';
+import { Toaster } from './components/ui';
 import { registerServiceWorker } from './pwa';
 import './styles.css';
 
@@ -77,6 +78,7 @@ createRoot(document.getElementById('root')!).render(
           </Route>
         </Routes>
       </BrowserRouter>
+      <Toaster />
     </QueryClientProvider>
   </StrictMode>,
 );

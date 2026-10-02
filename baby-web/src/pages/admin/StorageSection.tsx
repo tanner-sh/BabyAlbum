@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, HardDrive, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { get, request, type NasOverview, type NasSource, type StorageProtocol } from '../../api';
-import { ErrorBox, Modal, Spinner } from '../../components/ui';
+import { attempt, ErrorBox, Modal, Spinner, useConfirm } from '../../components/ui';
 
 const PROTOCOLS: { value: StorageProtocol; label: string; hint: string }[] = [
   { value: 'smb', label: 'SMB', hint: '大多数 NAS、Windows 和 macOS 的共享文件夹（Samba）' },
@@ -29,6 +29,7 @@ export function StorageSection() {
   const [editing, setEditing] = useState<NasSource | 'new' | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
+  const [ask, confirmDialog] = useConfirm();
 
   if (nas.isPending) return <Spinner />;
   if (nas.isError) return <ErrorBox error={nas.error} />;
@@ -37,25 +38,29 @@ export function StorageSection() {
 
   async function reconnect(n: NasSource) {
     setBusy(n.id);
-    await request('POST', `/api/admin/nas/${n.id}/reconnect`).catch((e) => alert(e.message));
+    await attempt(() => request('POST', `/api/admin/nas/${n.id}/reconnect`), `“${n.name}”已重新连接`);
     setBusy(null);
     await refresh();
   }
 
-  async function remove(n: NasSource) {
-    if (!confirm(`删除存储“${n.name}”？\n\n只是断开连接，存储上的文件不受影响。`)) return;
-    try {
-      await request('DELETE', `/api/admin/nas/${n.id}`);
-      await refresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : '删除失败');
-    }
+  function remove(n: NasSource) {
+    ask({
+      title: '删除存储',
+      message: `删除存储“${n.name}”？只是断开连接，存储上的文件不受影响。`,
+      confirmLabel: '删除',
+      danger: true,
+      action: async () => {
+        await request('DELETE', `/api/admin/nas/${n.id}`);
+        await refresh();
+      },
+    });
   }
 
   const backupSource = backup && sources.find((s) => s.id === backup.sourceId);
 
   return (
     <section>
+      {confirmDialog}
       <div className="section-actions">
         <div>
           <h2>存储</h2>
