@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, BellOff, KeyRound, LogOut, Settings, Share, Smartphone, SquarePlus } from 'lucide-react';
+import { Activity, Bell, BellOff, Copy, FolderOpen, KeyRound, LogOut, Monitor, Settings, Share, SlidersHorizontal, Smartphone, SquarePlus, UserRound } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router';
 import { get, request, ROLE_HINTS, ROLE_LABELS, useMe, useSetupStatus, type NotifyPrefs, type Role, type SetupStatus } from '../api';
@@ -204,53 +204,57 @@ export function AccountPage() {
 
   const user = me.data;
   return (
-    <div className="narrow">
-      {user && (
-        <section className="me-card">
-          <span className="me-avatar">{user.displayName.slice(-1)}</span>
-          <div>
-            <strong>{user.displayName}</strong>
-            <span className="muted">
-              {user.username} · {ROLE_LABELS[user.role]}
-            </span>
-          </div>
-        </section>
-      )}
-      {user?.role === 'admin' && <AdminEntry />}
-      <InstallSection />
-      <NotificationSection isAdmin={user?.role === 'admin'} />
-      <details className="card account-section">
-        <summary>
-          <KeyRound size={18} /> 修改密码
-        </summary>
-        <form className="form" onSubmit={submit}>
-          <Field label="当前密码">
-            <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
-          </Field>
-          <Field label="新密码（至少 8 位）">
-            <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required />
-          </Field>
-          {error && <div className="error-box">{error}</div>}
-          {done && <div className="success-box">密码已修改，其他设备上的登录已失效</div>}
-          <button className="btn btn-primary" disabled={busy}>
-            保存
-          </button>
-        </form>
-      </details>
-      <button className="btn btn-block logout-btn" onClick={logout}>
-        <LogOut size={16} />
-        退出登录
-      </button>
+    <div className={`account-page ${user?.role === 'admin' ? 'with-admin' : ''}`}>
+      <div className="account-main">
+        {user && (
+          <section className="me-card">
+            <span className="me-avatar">{user.displayName.slice(-1)}</span>
+            <div>
+              <strong>{user.displayName}</strong>
+              <span className="muted">
+                {user.username} · {ROLE_LABELS[user.role]}
+              </span>
+            </div>
+          </section>
+        )}
+        {user?.role === 'admin' && <AdminEntry />}
+      </div>
+      <div className="account-side">
+        <InstallSection />
+        <NotificationSection isAdmin={user?.role === 'admin'} />
+        <details className="card account-section">
+          <summary>
+            <KeyRound size={18} /> 修改密码
+          </summary>
+          <form className="form" onSubmit={submit}>
+            <Field label="当前密码">
+              <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
+            </Field>
+            <Field label="新密码（至少 8 位）">
+              <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required />
+            </Field>
+            {error && <div className="error-box">{error}</div>}
+            {done && <div className="success-box">密码已修改，其他设备上的登录已失效</div>}
+            <button className="btn btn-primary" disabled={busy}>
+              保存
+            </button>
+          </form>
+        </details>
+        <button className="btn btn-block logout-btn" onClick={logout}>
+          <LogOut size={16} />
+          退出登录
+        </button>
+      </div>
     </div>
   );
 }
 
 const ADMIN_LINKS = [
-  { to: '/admin/library', label: '照片库', hint: '存储、导入进度' },
-  { to: '/admin/people', label: '人物', hint: '宝宝、家人、合并' },
-  { to: '/admin/tidy', label: '整理', hint: '重复的照片' },
-  { to: '/admin/health', label: '系统状态', hint: '' },
-  { to: '/admin/settings', label: '系统设置', hint: '' },
+  { to: '/admin/library', label: '照片库', hint: '存储、导入进度', icon: FolderOpen },
+  { to: '/admin/people', label: '人物', hint: '宝宝、家人、合并', icon: UserRound },
+  { to: '/admin/tidy', label: '整理', hint: '重复的照片', icon: Copy },
+  { to: '/admin/health', label: '系统状态', hint: '', icon: Activity },
+  { to: '/admin/settings', label: '系统设置', hint: '转码、地图、备份', icon: SlidersHorizontal },
 ];
 
 /** 管理员：管理后台的入口（底部导航只有 5 项，管理放在“我的”里） */
@@ -265,6 +269,7 @@ function AdminEntry() {
       <div className="admin-links">
         {ADMIN_LINKS.map((l) => (
           <Link key={l.to} to={l.to}>
+            <l.icon size={20} className="admin-link-icon" />
             <strong>{l.label}</strong>
             <span className="muted small">{l.to === '/admin/health' ? (problems ? `${problems} 项需要注意` : '一切正常') : l.hint}</span>
             {l.to === '/admin/health' && problems > 0 && <span className="dot" />}
@@ -280,16 +285,18 @@ function InstallSection() {
   const [, rerender] = useState(0);
   useEffect(() => onInstallAvailable(() => rerender((n) => n + 1)), []);
   if (isStandalone()) return null;
+  // 电脑上（鼠标操作）说“安装到电脑”，手机上说“添加到主屏幕”
+  const desktop = window.matchMedia('(pointer: fine)').matches && !isIos();
   return (
     <section className="card account-section">
       <h2>
-        <Smartphone size={18} /> 添加到手机主屏幕
+        {desktop ? <Monitor size={18} /> : <Smartphone size={18} />} {desktop ? '安装到电脑' : '添加到手机主屏幕'}
       </h2>
-      <p className="muted">添加后像 App 一样从桌面打开、全屏浏览，还能收到宝宝生日和满月的提醒。</p>
+      <p className="muted">{desktop ? '安装后在单独的窗口里打开，不用每次在浏览器标签页里找。' : '添加后像 App 一样从桌面打开、全屏浏览，还能收到宝宝生日和满月的提醒。'}</p>
       {canPromptInstall() ? (
         <button className="btn btn-primary" onClick={() => promptInstall().then(() => rerender((n) => n + 1))}>
           <SquarePlus size={16} />
-          添加到主屏幕
+          {desktop ? '安装' : '添加到主屏幕'}
         </button>
       ) : isIos() ? (
         <ol className="install-steps">
@@ -302,7 +309,7 @@ function InstallSection() {
           <li>点右上角“添加”</li>
         </ol>
       ) : (
-        <p className="muted">在手机浏览器的菜单里选“添加到主屏幕”或“安装应用”。</p>
+        <p className="muted">{desktop ? 'Chrome、Edge：点地址栏右侧的安装图标；Safari：菜单“文件 → 添加到程序坞”。' : '在手机浏览器的菜单里选“添加到主屏幕”或“安装应用”。'}</p>
       )}
     </section>
   );

@@ -26,7 +26,7 @@ export function describeConnectError(err: unknown, address: string | null): stri
   const code = e.cause?.code ?? e.code ?? '';
   const name = e.cause?.name ?? e.name ?? '';
   const at = address ? `（解析到 ${address}）` : '';
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_FAIL') return '域名解析不了';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_FAIL') return DNS_FAILED;
   if (TLS_ERROR.test(code)) return `连上的不是真正的服务器${at}，通常是 DNS 被污染了`;
   if (name === 'TimeoutError' || name === 'AbortError' || code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'ETIMEDOUT') return `连接超时${at}，可能被网络屏蔽了`;
   if (code === 'ECONNRESET' || code === 'UND_ERR_SOCKET') return `连接被中断${at}，可能被网络屏蔽了`;
@@ -35,13 +35,25 @@ export function describeConnectError(err: unknown, address: string | null): stri
   return `连不上：${e.cause?.message ?? code ?? name ?? '未知原因'}`;
 }
 
+export const DNS_FAILED = '域名解析不了';
+
+/** 解析域名，解析不了或者迟迟没有结果（系统的 DNS 服务卡住时会一直等）都返回 null */
+export function resolveHost(host: string, timeoutMs = 5000, lookupFn: (host: string) => Promise<{ address: string }> = lookup): Promise<string | null> {
+  return Promise.race([
+    lookupFn(host).then(
+      (r) => r.address,
+      () => null,
+    ),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs).unref()),
+  ]);
+}
+
 /** 访问一下这个地址：只要服务器给了响应（不管状态码）、证书是对的，就算连得上 */
-export async function probe(url: string, timeoutMs = 8000): Promise<ProbeResult> {
+export async function probe(url: string, timeoutMs = 8000, resolve = resolveHost): Promise<ProbeResult> {
   const host = new URL(url).hostname;
-  const address = await lookup(host).then(
-    (r) => r.address,
-    () => null,
-  );
+  const address = await resolve(host);
+  // 解析不了就不用再连了，否则连接会一直等到超时，被误报成“被网络屏蔽”
+  if (!address) return { ok: false, reason: DNS_FAILED, address };
   const started = Date.now();
   try {
     const res = await fetch(url, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });

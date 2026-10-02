@@ -9,7 +9,7 @@ import { immichConnected, immichStatus } from './immich-link.ts';
 import { immich } from './immich.ts';
 import { importProgress } from './import-progress.ts';
 import { getBackupTarget, isMounterAvailable, mountState, nasTarget } from './nas.ts';
-import { probe, serviceName } from './net-check.ts';
+import { DNS_FAILED, probe, resolveHost, serviceName } from './net-check.ts';
 import { notifyAdmins, pushFailure } from './push.ts';
 
 export type HealthStatus = 'ok' | 'warn' | 'error' | 'skip';
@@ -79,6 +79,7 @@ async function checkNetwork(): Promise<HealthCheck> {
     return { key: 'network', label: '网络连接', status: 'ok', message: `${targets.map((t) => t.name.replace(/（.*）$/, '')).join('、')}都连得上` };
   }
   const blocked = failed.some((f) => !f.result.ok && /污染|屏蔽/.test(f.result.reason));
+  const dnsDown = results.every((r) => !r.ok && r.reason === DNS_FAILED);
   const unused = failed.filter((f) => !f.inUse && f.name.includes('推送'));
   return {
     key: 'network',
@@ -87,6 +88,7 @@ async function checkNetwork(): Promise<HealthCheck> {
     status: failed.some((f) => f.inUse) ? 'error' : 'warn',
     message: failed.map((f) => `${f.name}：${f.result.ok ? '' : f.result.reason}`).join('；'),
     hint: [
+      dnsDown ? DNS_DOWN_HINT : null,
       blocked ? '在国内，谷歌等境外服务要通过代理才能访问。如果这台电脑上的代理软件开了“增强模式”“TUN 模式”，确认它在运行，必要时关掉再打开' : null,
       unused.length && !inUse.size ? '还没有设备打开提醒，暂时不影响' : null,
       unused.length && inUse.size ? `${unused.map((f) => f.name.replace(/（.*）$/, '')).join('、')}目前没有设备在用，暂时不影响` : null,
@@ -96,13 +98,20 @@ async function checkNetwork(): Promise<HealthCheck> {
   };
 }
 
+/** 一个域名都解析不了：多半是这台电脑自己的域名解析出了问题，而不是网络被屏蔽 */
+const DNS_DOWN_HINT = '一个域名都解析不了，多半是运行宝宝相册的这台电脑域名解析出了问题（容器用的是这台电脑的 DNS）。用了代理软件的“增强模式”“TUN 模式”时，关掉再打开；macOS 上也可以运行 sudo killall -HUP mDNSResponder，或者重启电脑';
+
 async function checkCertificate(): Promise<HealthCheck> {
   if (!publicHost) return { key: 'cert', label: 'HTTPS 证书', status: 'skip', message: '还没有通过 HTTPS 访问过，不检查' };
   const [host, port] = publicHost.split(':');
+  const address = await resolveHost(host);
+  if (!address) {
+    return { key: 'cert', label: 'HTTPS 证书', status: 'warn', message: `这台电脑解析不了 ${host}，没法检查证书`, hint: DNS_DOWN_HINT };
+  }
   try {
     const validTo = await withTimeout(
       new Promise<Date>((resolve, reject) => {
-        const socket = connect({ host, port: Number(port ?? 443), servername: host, rejectUnauthorized: false }, () => {
+        const socket = connect({ host: address, port: Number(port ?? 443), servername: host, rejectUnauthorized: false }, () => {
           const cert = socket.getPeerCertificate();
           socket.end();
           cert?.valid_to ? resolve(new Date(cert.valid_to)) : reject(new Error('拿不到证书'));

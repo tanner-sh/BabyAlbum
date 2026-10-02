@@ -3796,3 +3796,35 @@ details.account-section[open] summary {
 .lightbox:has(.lightbox-info) .lightbox-counter {
   display: none;
 }
+
+/* ---- 我的：电脑上两栏（左边账号和管理，右边提醒、密码） */
+.account-page {
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+.admin-links .admin-link-icon {
+  margin-bottom: 4px;
+  color: var(--accent-text);
+}
+
+@media (min-width: 900px) {
+  .account-page.with-admin {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+    max-width: 980px;
+  }
+  .account-page.with-admin .admin-links {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .account-page.with-admin .admin-links a {
+    min-height: 92px;
+    padding: 14px 16px;
+  }
+  .admin-links a:hover {
+    background: var(--accent-soft);
+  }
+}

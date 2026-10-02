@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer, type AddressInfo, type Server } from 'node:net';
 import { test } from 'node:test';
-import { describeConnectError, probe, serviceName } from '../src/net-check.ts';
+import { describeConnectError, DNS_FAILED, probe, resolveHost, serviceName } from '../src/net-check.ts';
 
 // fetch 失败时，原因放在 cause 里（和 undici 的错误结构一致）
 const fetchError = (cause: object) => Object.assign(new TypeError('fetch failed'), { cause });
@@ -57,4 +57,11 @@ test('真实连接：对方不是正常的 HTTPS 服务器（和 DNS 污染一�
   server.close();
   assert.equal(r.ok, false);
   assert.match(!r.ok ? r.reason : '', /不是真正的服务器/);
+});
+
+test('域名解析不了时直接报解析失败，不等到连接超时', async () => {
+  // 系统 DNS 卡住：一直没有结果
+  const r = await probe('https://example.com/', 8000, (host) => resolveHost(host, 100, () => new Promise(() => {})));
+  assert.equal(r.ok, false);
+  assert.equal(!r.ok && r.reason, DNS_FAILED);
 });
