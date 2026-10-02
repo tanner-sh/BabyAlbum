@@ -83,9 +83,9 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
       danger: true,
       action: async () => {
         await request('DELETE', `/api/babies/${baby.id}`);
-        // 先离开再刷新，不然会闪一下“找不到这个宝宝”
+        // 只标记过期、不马上重新加载，不然这个页面还没离开，会闪一下“找不到这个宝宝”。首页打开时会重新加载
+        await queryClient.invalidateQueries({ queryKey: ['babies'], refetchType: 'none' });
         navigate('/');
-        await queryClient.invalidateQueries({ queryKey: ['babies'] });
       },
     });
   }

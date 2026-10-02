@@ -163,9 +163,9 @@ export function AlbumPage() {
       danger: true,
       action: async () => {
         await request('DELETE', `/api/albums/${albumId}`);
-        // 先离开再刷新，不然这个页面会去重新加载已经删掉的相册，闪一下出错
+        // 只标记过期、不马上重新加载：不然这个页面还没离开，会去加载已经删掉的相册，闪一下出错。相册列表打开时会重新加载
+        await queryClient.invalidateQueries({ queryKey: ['/api', 'albums'], refetchType: 'none' });
         navigate('/albums');
-        await refresh();
       },
     });
   }
