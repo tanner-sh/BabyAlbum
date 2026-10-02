@@ -4115,3 +4115,16 @@ details.account-section[open] summary {
   background: rgb(0 0 0 / 55%);
   color: #fff;
 }
+
+/* 系统设置：正在设置天地图时，标出原来正在用的底图 */
+.role-option .in-use {
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: normal;
+}
+
+.notice-inline {
+  margin: 4px 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}

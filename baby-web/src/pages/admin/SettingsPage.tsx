@@ -115,12 +115,15 @@ function AppSettingsSection() {
   }
 
   function choose(tiles: AppSettings['mapTiles']) {
-    // 天地图要先有 Key
+    // 天地图要先有 Key：先选中天地图、填 Key，验证通过才真正切换
     if (tiles === 'tianditu' && !current.tiandituKey) {
       setAskKey(true);
       return;
     }
-    void save({ mapTiles: tiles });
+    // 正在填天地图 Key 时点了别的：就是不用天地图了
+    setAskKey(false);
+    setError(null);
+    if (tiles !== current.mapTiles) void save({ mapTiles: tiles });
   }
 
   async function saveKey() {
@@ -154,6 +157,8 @@ function AppSettingsSection() {
   }
 
   const showKey = askKey || current.mapTiles === 'tianditu' || !!current.tiandituKey;
+  // 选中的卡片：正在设置天地图时是天地图（还没真正切换），否则是正在用的
+  const selected = askKey ? 'tianditu' : current.mapTiles;
 
   return (
     <Section title="地图" hint="“搜索 · 地图”里按拍摄地点看照片时用的底图。改了马上生效。">
@@ -164,10 +169,14 @@ function AppSettingsSection() {
             key={t.value}
             type="button"
             disabled={busy}
-            className={`role-option ${current.mapTiles === t.value ? 'selected' : ''}`}
+            className={`role-option ${selected === t.value ? 'selected' : ''}`}
             onClick={() => choose(t.value)}
+            aria-pressed={selected === t.value}
           >
-            <strong>{t.label}</strong>
+            <strong>
+              {t.label}
+              {selected !== current.mapTiles && current.mapTiles === t.value && <span className="chip small in-use">正在使用</span>}
+            </strong>
             <span className="muted">{t.hint}</span>
           </button>
         ))}
@@ -176,7 +185,7 @@ function AppSettingsSection() {
         <div className="field tianditu-key">
           <span>天地图 Key</span>
           <div className="inline-fields">
-            <input value={keyValue} onChange={(e) => setKey(e.target.value)} placeholder="32 位字母和数字" spellCheck={false} autoComplete="off" />
+            <input value={keyValue} onChange={(e) => setKey(e.target.value)} placeholder="32 位字母和数字" spellCheck={false} autoComplete="off" autoFocus={askKey} />
             <button className="btn btn-primary" disabled={busy || !keyValue.trim() || keyValue.trim() === current.tiandituKey} onClick={saveKey}>
               {busy ? '验证中…' : '验证并使用'}
             </button>
@@ -186,6 +195,9 @@ function AppSettingsSection() {
               </button>
             )}
           </div>
+          {askKey && !current.tiandituKey && (
+            <p className="notice-inline">填好 Key、验证通过后就切换到天地图；在这之前还是用{MAP_TILES.find((t) => t.value === current.mapTiles)?.label}。</p>
+          )}
           <p className="muted small">
             申请方法：在 <a href="https://console.tianditu.gov.cn/" target="_blank" rel="noreferrer">天地图控制台</a> 注册登录，创建应用时类型选“浏览器端”，
             白名单里填访问宝宝相册用的域名（比如 photos.example.com），把生成的 Key 复制到这里。看地图的人的浏览器会直接用这个 Key 加载地图。

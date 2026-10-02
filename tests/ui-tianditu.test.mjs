@@ -60,6 +60,20 @@ check('没 Key 时不显示 Key 输入框', !(await page.$('.tianditu-key')));
 await clickOption('天地图');
 await page.waitForSelector('.tianditu-key input');
 check('选天地图时先要求填 Key', (await settings()).mapTiles === 'osm');
+// 点了天地图：天地图卡片选中，原来在用的标“正在使用”，还没真正切换
+const cards = () => page.evaluate(() => [...document.querySelectorAll('.role-option')].slice(0, 3).map((b) => ({ text: b.innerText, selected: b.classList.contains('selected') })));
+const c1 = await cards();
+check('点天地图后天地图卡片选中', c1[1].selected && !c1[0].selected && !c1[2].selected, c1);
+check('原来在用的标着“正在使用”', c1[0].text.includes('正在使用'), c1);
+check('提示验证通过后才切换', (await page.$eval('.tianditu-key', (e) => e.innerText)).includes('验证通过后就切换到天地图'));
+check('Key 输入框自动获得焦点', await page.evaluate(() => document.activeElement === document.querySelector('.tianditu-key input')));
+// 改主意：点回原来的，就不设置天地图了
+await clickOption('OpenStreetMap');
+await new Promise((r) => setTimeout(r, 300));
+const c2 = await cards();
+check('点回原来的底图：取消设置天地图', c2[0].selected && !c2[1].selected && !(await page.$('.tianditu-key')), c2);
+await clickOption('天地图');
+await page.waitForSelector('.tianditu-key input');
 
 // 格式不对：服务器校验
 await setKey('123');
