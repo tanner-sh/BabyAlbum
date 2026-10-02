@@ -659,7 +659,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/people/:id/faces', async (req) => {
     const { id } = uuidParams.parse(req.params);
     const { size } = z.object({ size: z.coerce.number().int().min(1).max(24).default(12) }).parse(req.query);
-    const assets = await immich.searchRandom({ randomSearchDto: { personIds: [id], size, type: immich.AssetTypeEnum.Image } });
+    const assets = await immich.searchRandom({ randomSearchDto: { personIds: [id], size, type: immich.AssetTypeEnum.Image, visibility: immich.AssetVisibility.Timeline } });
     return mapLimit(assets, 6, async (a) => {
       const faces = await immich.getFaces({ id: a.id }).catch(() => []);
       const f = faces.find((x) => x.person?.id === id);

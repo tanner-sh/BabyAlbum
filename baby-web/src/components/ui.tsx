@@ -42,8 +42,36 @@ const LAYER_KEY = 'babyAlbumLayer';
 const closedByBack = new Set<number>();
 const historyLayer = () => (window.history.state?.[LAYER_KEY] as number | undefined) ?? 0;
 
+/** 点关闭按钮关掉、要从历史记录里退掉的层（同时关掉的几层一起退） */
+const pendingBack = new Set<number>();
+/** 自己退历史记录时，浏览器会把滚动位置恢复成打开弹窗前的；记下当前位置，退完再滚回来 */
+let keepScroll: number | null = null;
+
+function flushBack() {
+  // StrictMode 下会卸载再重新挂载，重新挂载的不算关掉
+  const ids = [...pendingBack].filter((id) => !layers.some((l) => l.id === id));
+  pendingBack.clear();
+  const current = historyLayer();
+  // 历史记录已经不在这些层上（关闭时跳到了别的页面）就不用管
+  if (!ids.includes(current)) return;
+  const top = Math.max(0, ...layers.filter((l) => l.history).map((l) => l.id));
+  const n = ids.filter((id) => id > top && id <= current).length;
+  if (!n) return;
+  const y = window.scrollY;
+  keepScroll = y;
+  // 万一没收到 popstate，别影响之后用户自己按返回键
+  setTimeout(() => keepScroll === y && (keepScroll = null), 1000);
+  window.history.go(-n);
+}
+
 // 手机的返回键、侧滑返回：只关掉最上面的弹窗、大图，不离开当前页面
 window.addEventListener('popstate', () => {
+  if (keepScroll !== null) {
+    const y = keepScroll;
+    keepScroll = null;
+    window.scrollTo(0, y);
+    requestAnimationFrame(() => window.scrollTo(0, y));
+  }
   const current = historyLayer();
   for (const l of [...layers].reverse()) {
     if (!l.history || l.id <= current) continue;
@@ -71,12 +99,10 @@ export function useLayer(onClose: () => void, { history = true }: { history?: bo
     return () => {
       layers.splice(layers.indexOf(layer), 1);
       if (!layers.length) document.body.classList.remove('no-scroll');
-      if (!history) return;
-      // 点关闭按钮关掉的：把记的那一条退掉。关闭时跳到了别的页面（历史记录已经不是这一条）就不用管
-      setTimeout(() => {
-        if (closedByBack.delete(id) || layers.some((l) => l.id === id)) return;
-        if (historyLayer() === id) window.history.back();
-      });
+      if (!history || closedByBack.delete(id)) return;
+      // 点关闭按钮关掉的：把记的那一条退掉
+      if (!pendingBack.size) setTimeout(flushBack);
+      pendingBack.add(id);
     };
   }, [id, history]);
   return useCallback(() => layers.at(-1)?.id === id, [id]);

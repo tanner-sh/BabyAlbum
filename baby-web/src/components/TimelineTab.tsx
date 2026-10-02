@@ -115,6 +115,14 @@ export function TimelineTab({ baby, onMilestone }: { baby: Baby; onMilestone?: (
       </>
     );
   }
+  if (!flat.length && jump) {
+    return (
+      <>
+        {filter}
+        <Empty icon={<ImageOff size={40} />} title="这个月龄之前没有照片" />
+      </>
+    );
+  }
   if (!flat.length) {
     return (
       <Empty icon={<ImageOff size={40} />} title="还没有照片">

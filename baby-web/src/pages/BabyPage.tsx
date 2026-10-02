@@ -83,8 +83,9 @@ function EditBabyModal({ baby, onClose }: { baby: Baby; onClose: () => void }) {
       danger: true,
       action: async () => {
         await request('DELETE', `/api/babies/${baby.id}`);
-        await queryClient.invalidateQueries({ queryKey: ['babies'] });
+        // 先离开再刷新，不然会闪一下“找不到这个宝宝”
         navigate('/');
+        await queryClient.invalidateQueries({ queryKey: ['babies'] });
       },
     });
   }

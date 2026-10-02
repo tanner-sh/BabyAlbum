@@ -163,8 +163,9 @@ export function AlbumPage() {
       danger: true,
       action: async () => {
         await request('DELETE', `/api/albums/${albumId}`);
-        await refresh();
+        // 先离开再刷新，不然这个页面会去重新加载已经删掉的相册，闪一下出错
         navigate('/albums');
+        await refresh();
       },
     });
   }

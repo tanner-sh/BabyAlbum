@@ -113,6 +113,11 @@ if (target) {
   await page.waitForSelector('.tab-panel .grid .thumb', { timeout: 30000 });
   const group = await page.$eval('.group-header h3', (e) => e.innerText);
   check('跳到某个月龄：时间线从那个月龄开始', group !== firstGroup && (await page.$eval('.jump-banner', (e) => e.innerText)).includes(target), { target, group, firstGroup });
+  // 跳完停在时间线开头：工具栏在吸顶的标签栏下面露出来，关弹窗时浏览器也没把位置恢复回去
+  await sleep(500);
+  const toolsTop = await page.$eval('.timeline-tools', (e) => e.getBoundingClientRect().top);
+  const tabsBottom = await page.$eval('.tabs', (e) => e.getBoundingClientRect().bottom);
+  check('跳转后停在时间线开头，没被吸顶栏挡住', toolsTop >= tabsBottom - 1 && toolsTop < 400, { toolsTop, tabsBottom });
   await page.screenshot({ path: `${SHOTS}timeline-jump.png` });
   await clickText(page, '.jump-banner button', '回到最新');
   await page.waitForFunction((g) => document.querySelector('.group-header h3')?.innerText === g, { timeout: 20000 }, firstGroup);
@@ -130,6 +135,27 @@ if (tall) {
   const y = await page.evaluate(() => window.scrollY);
   check('切到“回顾”再切回来：时间线还在原来的位置', Math.abs(y - 500) < 5, y);
 } else console.log('- 时间线太短，跳过滚动位置检查');
+
+// ================================================================ 编辑弹窗里删除（确认框和编辑弹窗一起关掉）：历史记录里不留下多余的
+const milestone = (await admin.req('POST', `/api/babies/${baby.id}/milestones`, { title: '历史记录测试', date: baby.birthday })).data;
+await page.goto(`${BASE}/baby/${baby.id}?tab=records&view=milestones`, { waitUntil: 'networkidle0' });
+await page.waitForSelector('.milestone');
+const historyBefore = await page.evaluate(() => history.length);
+await page.evaluate(() => [...document.querySelectorAll('.milestone')].find((m) => m.innerText.includes('历史记录测试')).querySelector('button[aria-label=编辑]').click());
+await page.waitForSelector('.modal');
+await clickText(page, '.modal-footer button', '删除');
+await page.waitForSelector('.modal .btn-danger');
+await page.click('.modal .btn-danger');
+await page.waitForSelector('.modal', { hidden: true, timeout: 10000 });
+await sleep(500);
+const after = await page.evaluate(() => ({ layer: history.state?.babyAlbumLayer ?? 0, length: history.length }));
+check('删除里程碑后，历史记录退回到打开弹窗前', after.layer === 0, after);
+check('……而且删掉了', !(await admin.req('GET', `/api/babies/${baby.id}/milestones`)).data.some((m) => m.id === milestone.id));
+// 再按一次返回键就离开宝宝页（不会有一次“按了没反应”）
+const beforeBack = path(page);
+await page.goBack();
+await sleep(500);
+check('之后按返回键直接回到上一页', path(page) !== beforeBack, { beforeBack, now: path(page), historyBefore });
 
 // ================================================================ 留言：时间按本地时间显示；从留言页点进照片，关掉回到留言页
 const assetId = await page.evaluate(() => {

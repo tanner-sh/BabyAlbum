@@ -260,12 +260,16 @@ export async function timeline(baby: Baby, page: number, size: number, filter: {
     nextPage = all.length > page * size ? page + 1 : null;
   } else {
     const personIds = filter.withPerson ? [baby.immichPersonId, filter.withPerson] : [baby.immichPersonId];
-    ({ items, nextPage } = await pageWithCorrections({ personIds, visibility: immich.AssetVisibility.Timeline, ...(cap && { takenBefore: cap }) }, page, size, async (o) =>
+    // Immich 按 UTC 比较：放宽一天（任何时区都不会漏掉），再按当地时间精确筛
+    const loose = filter.before && `${shiftDays(filter.before, 1)}T00:00:00.000Z`;
+    ({ items, nextPage } = await pageWithCorrections({ personIds, visibility: immich.AssetVisibility.Timeline, ...(loose && { takenBefore: loose }) }, page, size, async (o) =>
       (await correctedAssetsOf(baby, o)).filter((a) => !filter.withPerson || (a.people ?? []).some((p) => p.id === filter.withPerson)),
     ));
   }
-  // Immich 按 UTC 时间比较，和当地时间差几个小时，边界上再按当地时间筛一次
+  // 放宽了一天，第一页最前面可能有当天的照片，按当地时间去掉（之后的页都在这之前，不受影响）
   if (cap) items = items.filter((a) => a.localDateTime < cap);
+  // 一整页都是被去掉的那一天（照片特别多的一天）：直接给下一页，前端不会以为没有照片
+  if (cap && !items.length && nextPage) return timeline(baby, nextPage, size, filter);
   const groups: { label: string; months: number; items: AlbumItem[] }[] = [];
   for (const asset of items) {
     const age = computeAge(baby.birthday, asset.localDateTime);

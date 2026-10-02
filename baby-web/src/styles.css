@@ -4000,6 +4000,11 @@ details.account-section[open] summary {
 }
 
 /* ------------------------------------------------------------------ 时间线：跳到某个月龄 */
+/* 跳到某个月龄后滚到这里：别被吸顶的顶栏、标签栏挡住 */
+.timeline-tools {
+  scroll-margin-top: 130px;
+}
+
 .timeline-buttons {
   display: flex;
   flex-shrink: 0;

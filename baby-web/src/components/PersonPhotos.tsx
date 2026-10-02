@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Images, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { get, type PersonFace } from '../api';
+import { formatDate } from '../format';
 import { Lightbox } from './Lightbox';
 import { Avatar, ErrorBox, Modal, Spinner } from './ui';
 
@@ -118,7 +119,8 @@ export function FaceStrip({ person, title, size, hideAvatar }: { person: PersonR
 /** 从照片里裁出这个人的脸（留一些边，能看到发型和脸型）；找不到脸的位置就显示整张照片 */
 function FaceCrop({ face, onClick }: { face: PersonFace; onClick: () => void }) {
   const url = `/api/assets/${face.id}/thumbnail?size=preview`;
-  const title = `${new Date(face.takenAt).toLocaleDateString('zh-CN')}，点开看整张照片`;
+  // 拍摄时间是当地时间，不能用 new Date（会当成 UTC 再换算）
+  const title = `${formatDate(face.takenAt)}，点开看整张照片`;
   if (!face.box) return <button type="button" className="face-crop" onClick={onClick} title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
   const { x, y, w, h, ratio } = face.box;
   // 以照片高度为 1，宽度为 ratio；取一个包住脸、放大 1.8 倍的正方形，不超出照片
