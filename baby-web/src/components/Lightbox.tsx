@@ -7,6 +7,7 @@ import { AlbumPicker } from './AlbumPicker';
 import { EditDateModal } from './DateFix';
 import { SocialPanel, useSocial } from './Social';
 import { LiveBadge } from './PhotoGrid';
+import { useLayer } from './ui';
 
 type Props = {
   items: AlbumItem[];
@@ -32,6 +33,8 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
   // 收藏状态在本地立即更新，不等列表重新加载
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const info = useAssetInfo(showInfo ? item?.id : null);
+  // 可能是从弹窗里打开的（比如人物弹窗），Esc 只关大图
+  const isTop = useLayer();
 
   const go = (delta: number) => {
     const next = index + delta;
@@ -41,7 +44,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // 弹窗、输入框里按键时不切换照片
-      if (editingDate || addingToAlbum || (e.target as HTMLElement).closest('input, textarea')) return;
+      if (!isTop() || editingDate || addingToAlbum || (e.target as HTMLElement).closest('input, textarea')) return;
       if (e.key === 'Escape') {
         // 先关菜单、面板，再关大图
         if (showMenu) setShowMenu(false);
@@ -54,11 +57,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onMilestone, in
       if (e.key === 'ArrowRight') go(1);
     };
     window.addEventListener('keydown', onKey);
-    document.body.classList.add('no-scroll');
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.classList.remove('no-scroll');
-    };
+    return () => window.removeEventListener('keydown', onKey);
   });
 
   // 预加载相邻的两张

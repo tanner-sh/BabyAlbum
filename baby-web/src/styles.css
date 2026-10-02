@@ -1768,6 +1768,12 @@ select {
   border-top: 1px solid var(--border);
 }
 
+/* 从弹窗里打开的大图要盖在弹窗上面；大图自己的子弹窗在这一层里面比较 */
+.lightbox-layer {
+  position: relative;
+  z-index: 65;
+}
+
 .face-strip + .face-strip {
   margin-top: 20px;
   padding-top: 16px;
@@ -1789,6 +1795,10 @@ select {
 
 .face-crop {
   display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
   aspect-ratio: 1;
   border-radius: var(--radius-sm);
   background-color: var(--surface-2);

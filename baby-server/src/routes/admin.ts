@@ -5,7 +5,7 @@ import { readdir } from 'node:fs/promises';
 import { posix } from 'node:path';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { clearAlbumCache } from '../album.ts';
+import { clearAlbumCache, toPhotoItem } from '../album.ts';
 import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, usernameSchema } from '../auth.ts';
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
@@ -672,7 +672,7 @@ export async function adminRoutes(app: FastifyInstance) {
             ratio: f.imageWidth / f.imageHeight,
           }
         : null;
-      return { assetId: a.id, takenAt: a.localDateTime, box };
+      return { ...toPhotoItem(a), box };
     });
   });
 

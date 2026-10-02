@@ -1,5 +1,5 @@
 import { Check, Copy, X } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { type Baby } from '../api';
 
 export function Spinner({ label = '加载中…' }: { label?: string }) {
@@ -34,7 +34,24 @@ export function Avatar({ baby, size = 56 }: { baby: Pick<Baby, 'name' | 'thumbna
   );
 }
 
-const openModals: object[] = [];
+const layers: object[] = [];
+
+/**
+ * 叠起来的弹窗、大图（比如人物弹窗里再点开照片）：只有最上面一层响应 Esc，
+ * 全部关掉后页面才恢复滚动。返回“当前是不是最上面一层”
+ */
+export function useLayer() {
+  const [token] = useState(() => ({}));
+  useEffect(() => {
+    layers.push(token);
+    document.body.classList.add('no-scroll');
+    return () => {
+      layers.splice(layers.indexOf(token), 1);
+      if (!layers.length) document.body.classList.remove('no-scroll');
+    };
+  }, [token]);
+  return useCallback(() => layers.at(-1) === token, [token]);
+}
 
 export function Modal({
   title,
@@ -49,23 +66,16 @@ export function Modal({
   footer?: ReactNode;
   wide?: boolean;
 }) {
+  const isTop = useLayer();
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
   });
   useEffect(() => {
-    // 弹窗可以叠起来（比如人物里再点开对比照片），Esc 只关最上面那个
-    const token = {};
-    openModals.push(token);
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openModals.at(-1) === token && closeRef.current();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && isTop() && closeRef.current();
     window.addEventListener('keydown', onKey);
-    document.body.classList.add('no-scroll');
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      openModals.splice(openModals.indexOf(token), 1);
-      if (!openModals.length) document.body.classList.remove('no-scroll');
-    };
-  }, []);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isTop]);
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

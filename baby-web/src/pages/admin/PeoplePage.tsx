@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { get, request, type AdminPerson, type PersonFace, type Sex, type SimilarPerson } from '../../api';
 import { SexPicker } from '../../components/ClaimBaby';
 import { FamilyIntro } from '../../components/FamilyIntro';
+import { Lightbox } from '../../components/Lightbox';
 import { Avatar, ErrorBox, Modal, Spinner, Toggle } from '../../components/ui';
 
 /** 人物：人脸识别的结果。命名、设生日、合并（同一个人被拆成了几个）、设为宝宝 */
@@ -244,6 +245,7 @@ function FaceStrip({ person, title, size, hideAvatar }: { person: AdminPerson; t
     queryFn: () => get<PersonFace[]>(`/api/admin/people/${person.id}/faces?size=${size}`),
     staleTime: Infinity,
   });
+  const [open, setOpen] = useState<number | null>(null);
   return (
     <section className="face-strip">
       <div className="face-strip-head">
@@ -263,9 +265,15 @@ function FaceStrip({ person, title, size, hideAvatar }: { person: AdminPerson; t
         <p className="muted">没有找到照片</p>
       ) : (
         <div className="face-grid">
-          {faces.data.map((f) => (
-            <FaceCrop key={f.assetId} face={f} />
+          {faces.data.map((f, i) => (
+            <FaceCrop key={f.id} face={f} onClick={() => setOpen(i)} />
           ))}
+        </div>
+      )}
+      {open !== null && faces.data && (
+        // 盖在人物弹窗上面
+        <div className="lightbox-layer">
+          <Lightbox items={faces.data} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} />
         </div>
       )}
     </section>
@@ -273,10 +281,10 @@ function FaceStrip({ person, title, size, hideAvatar }: { person: AdminPerson; t
 }
 
 /** 从照片里裁出这个人的脸（留一些边，能看到发型和脸型）；找不到脸的位置就显示整张照片 */
-function FaceCrop({ face }: { face: PersonFace }) {
-  const url = `/api/assets/${face.assetId}/thumbnail?size=preview`;
+function FaceCrop({ face, onClick }: { face: PersonFace; onClick: () => void }) {
+  const url = `/api/assets/${face.id}/thumbnail?size=preview`;
   const title = `${new Date(face.takenAt).toLocaleDateString('zh-CN')}，点开看整张照片`;
-  if (!face.box) return <a className="face-crop" href={url} target="_blank" rel="noreferrer" title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
+  if (!face.box) return <button type="button" className="face-crop" onClick={onClick} title={title} style={{ backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
   const { x, y, w, h, ratio } = face.box;
   // 以照片高度为 1，宽度为 ratio；取一个包住脸、放大 1.8 倍的正方形，不超出照片
   const side = Math.min(Math.max(w * ratio, h) * 1.8, ratio, 1);
@@ -286,11 +294,10 @@ function FaceCrop({ face }: { face: PersonFace }) {
   const top = Math.min(Math.max(y + h / 2 - sh / 2, 0), 1 - sh);
   const pos = (start: number, span: number) => (span >= 1 ? 0 : (start / (1 - span)) * 100);
   return (
-    <a
+    <button
+      type="button"
       className="face-crop"
-      href={url}
-      target="_blank"
-      rel="noreferrer"
+      onClick={onClick}
       title={title}
       style={{
         backgroundImage: `url(${url})`,
