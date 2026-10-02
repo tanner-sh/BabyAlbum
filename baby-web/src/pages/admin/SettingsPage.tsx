@@ -151,7 +151,9 @@ function AppSettingsSection() {
       confirmLabel: '删除',
       danger: true,
       action: async () => {
-        if (await save({ tiandituKey: null, mapTiles: current.mapTiles === 'tianditu' ? 'osm' : current.mapTiles }, '已删除天地图的 Key')) setKey(null);
+        // 失败时抛出去，确认框不关、显示原因（save 自己不抛错）
+        if (!(await save({ tiandituKey: null, mapTiles: current.mapTiles === 'tianditu' ? 'osm' : current.mapTiles }, '已删除天地图的 Key'))) throw new Error('删除失败，请稍后再试');
+        setKey(null);
       },
     });
   }

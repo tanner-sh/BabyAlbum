@@ -8,7 +8,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { allPhotos, clearAlbumCache, dateIssues } from '../album.ts';
+import { allPhotos, clearAlbumCache, dateIssues, mapLimit } from '../album.ts';
 import { adminOnly, canSeeBaby, editors, newToken } from '../auth.ts';
 import { albums, babies, dateOverrides, growthRecords, journal, milestones, shares, social, type Baby, type Share, type User } from '../db.ts';
 import { immich, proxyMedia } from '../immich.ts';
@@ -70,6 +70,13 @@ const shareView = ({ passwordHash, ...s }: Share) => ({ ...s, hasPassword: !!pas
 
 export const visibleBabies = (user: User) => babies.list().filter((b) => canSeeBaby(user, b.id));
 export const unrestricted = (user: User) => user.role === 'admin' || user.babyIds === null;
+
+/** 这些照片里当前用户能看的（并发有上限；照片已删除时当作看不到） */
+export async function accessibleAssetIds(user: User, ids: string[]) {
+  if (unrestricted(user)) return ids;
+  const ok = await mapLimit(ids, 8, (id) => canAccessAsset(user, id));
+  return ids.filter((_, i) => ok[i]);
+}
 
 /** 改、删、分享相册：只能看部分宝宝的家人只能动自己建的相册（别人的相册里可能有 TA 看不到的照片） */
 export const canManageAlbum = (user: User, album: { createdBy: number | null } | undefined) => !!album && (unrestricted(user) || album.createdBy === user.id);
@@ -274,9 +281,8 @@ export async function manageRoutes(app: FastifyInstance) {
       const album = albums.get(body.albumId);
       if (!album) return '相册不存在';
       if (!canManageAlbum(user, album)) return '只能分享自己建的相册';
-      if (!unrestricted(user)) {
-        for (const id of albums.assetIds(album.id)) if (!(await canAccessAsset(user, id))) return '相册里有你看不到的照片，不能分享';
-      }
+      const ids = albums.assetIds(album.id);
+      if ((await accessibleAssetIds(user, ids)).length < ids.length) return '相册里有你看不到（或者已经删除）的照片，不能分享';
       return null;
     }
     if (!body.babyIds.length) return '请选择要分享的宝宝';

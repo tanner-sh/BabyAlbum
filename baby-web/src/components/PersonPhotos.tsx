@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Images, Play, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
-import { get, type PersonFace } from '../api';
+import { get, thumbUrl, useAlbum, type PersonFace } from '../api';
 import { formatDate } from '../format';
 import { Lightbox } from './Lightbox';
 import { Avatar, ErrorBox, Modal, Spinner } from './ui';
@@ -118,7 +118,7 @@ export function FaceStrip({ person, title, size, hideAvatar }: { person: PersonR
 
 /** 从照片里裁出这个人的脸（留一些边，能看到发型和脸型）；找不到脸的位置就显示整张照片 */
 function FaceCrop({ face, onClick }: { face: PersonFace; onClick: () => void }) {
-  const url = `/api/assets/${face.id}/thumbnail?size=preview`;
+  const url = thumbUrl(useAlbum(), face.id, 'preview');
   // 拍摄时间是当地时间，不能用 new Date（会当成 UTC 再换算）
   const isVideo = face.type === 'VIDEO';
   const title = `${formatDate(face.takenAt)}，${isVideo ? '点开播放视频' : '点开看整张照片'}`;

@@ -5,12 +5,12 @@ import { readdir } from 'node:fs/promises';
 import { posix } from 'node:path';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { clearAlbumCache, toPhotoItem } from '../album.ts';
+import { cachedPhotos, clearAlbumCache, mapLimit, toPhotoItem } from '../album.ts';
 import { adminOnly, displayNameSchema, newToken, passwordSchema, publicUser, usernameSchema } from '../auth.ts';
 import { config } from '../config.ts';
 import { babies, hiddenAssets, invites, nasSources, settings, transaction, users, type NasSource, type Role } from '../db.ts';
 import { importProgress } from '../import-progress.ts';
-import { allPeople, skipPerson, unnamedPeople, unskipPerson } from '../family.ts';
+import { allPeople, peopleUntil, skipPerson, unnamedPeople, unskipPerson } from '../family.ts';
 import { healthReport, runHealthChecks } from '../health.ts';
 import { MAP_TILES, mapTiles, tiandituKey } from '../map.ts';
 import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
@@ -24,19 +24,6 @@ const babyIdsSchema = z.array(z.number().int()).nullable();
 const idParams = z.object({ id: z.coerce.number().int() });
 const uuidParams = z.object({ id: z.uuid() });
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
-        const i = next++;
-        results[i] = await fn(items[i]);
-      }
-    }),
-  );
-  return results;
-}
 
 // ---------------------------------------------------------------- 任务队列的中文名称
 
@@ -611,10 +598,11 @@ export async function adminRoutes(app: FastifyInstance) {
   const dismissedPeople = () => new Set<string>(JSON.parse(settings.get('people.dismissed') ?? '[]'));
 
   app.get('/api/admin/people/suggestion', async () => {
-    const people = await allPeople(false);
     const linked = new Set(babies.list().map((b) => b.immichPersonId));
     const dismissed = dismissedPeople();
-    const candidates = people.filter((p) => !p.name && !linked.has(p.id) && !dismissed.has(p.id)).slice(0, 30);
+    const wanted = (p: immich.PersonResponseDto) => !p.name && !linked.has(p.id) && !dismissed.has(p.id);
+    const people = await peopleUntil(false, (list) => list.filter(wanted).length >= 30);
+    const candidates = people.filter(wanted).slice(0, 30);
     const counts = await mapLimit(candidates, 8, (p) => immich.getPersonStatistics({ id: p.id }).then((s) => s.assets).catch(() => 0));
     const best = candidates.map((p, i) => ({ p, assets: counts[i] })).sort((a, b) => b.assets - a.assets)[0];
     // 照片太少的不提示（可能还在识别中，或者只是路人）
@@ -637,11 +625,16 @@ export async function adminRoutes(app: FastifyInstance) {
    */
   app.get('/api/admin/people/:id/similar', async (req) => {
     const { id } = uuidParams.parse(req.params);
-    // 所有人物都要看：宝宝小时候被拆出来的人物往往照片很少，排在很后面
+    // 要看所有人物（宝宝小时候被拆出来的人物往往照片很少，排在很后面），每个人物要问两次 Immich，
+    // 人物多时比较慢，结果缓存 10 分钟；命名、隐藏、合并人物时会清掉缓存
+    return cachedPhotos(`similar:${id}`, 10 * 60_000, () => similarPeople(id));
+  });
+
+  async function similarPeople(id: string) {
     const people = await allPeople(false);
     const otherBabies = new Set(babies.list().filter((b) => b.immichPersonId !== id).map((b) => b.immichPersonId));
     const candidates = people.filter((p) => p.id !== id && !otherBabies.has(p.id));
-    const result = await mapLimit(candidates, 6, async (p) => {
+    const result = await mapLimit(candidates, 8, async (p) => {
       const [together, stats] = await Promise.all([
         immich.searchAssetStatistics({ statisticsSearchDto: { personIds: [id, p.id] } }).then((r) => r.total),
         immich.getPersonStatistics({ id: p.id }),
@@ -650,7 +643,7 @@ export async function adminRoutes(app: FastifyInstance) {
     });
     // 偶尔有误识别，同框不超过 1% 的也算没同框过
     return result.filter((p) => p.assets > 0 && p.together <= Math.max(1, p.assets * 0.01)).sort((a, b) => b.assets - a.assets);
-  });
+  }
 
   /** 随机取这个人物的几张照片和 TA 的脸在照片里的位置（比例），合并前对比长相用 */
   app.get('/api/admin/people/:id/faces', async (req) => {

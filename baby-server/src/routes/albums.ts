@@ -3,11 +3,11 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { cachedPhotos, tidyAssets, toPhotoItem } from '../album.ts';
+import { cachedPhotos, mapLimit, tidyAssets, toPhotoItem } from '../album.ts';
 import { editors } from '../auth.ts';
 import { albums, dateOverrides } from '../db.ts';
 import { immich } from '../immich.ts';
-import { canAccessAsset, canManageAlbum, unrestricted } from './manage.ts';
+import { accessibleAssetIds, canAccessAsset, canManageAlbum, unrestricted } from './manage.ts';
 
 const idParams = z.object({ id: z.coerce.number().int() });
 const albumBody = z.object({
@@ -19,10 +19,11 @@ const assetsBody = z.object({ assetIds: z.array(z.uuid()).min(1).max(1000) });
 /** 相册里的照片，按拍摄时间正序（看相册像翻一本书）。canAccess 用来过滤没有权限的照片 */
 export async function albumItems(albumId: number, canAccess: (assetId: string) => Promise<boolean>) {
   const ids = albums.assetIds(albumId);
-  const allowed = (await Promise.all(ids.map(async (id) => ((await canAccess(id)) ? id : null)))).filter((id) => id !== null);
-  const assets = (
-    await Promise.all(allowed.map((id) => cachedPhotos(`asset:${id}`, 10 * 60_000, () => immich.getAssetInfo({ id })).catch(() => null)))
-  ).filter((a): a is immich.AssetResponseDto => !!a);
+  const ok = await mapLimit(ids, 8, canAccess);
+  const allowed = ids.filter((_, i) => ok[i]);
+  const assets = (await mapLimit(allowed, 8, (id) => cachedPhotos(`asset:${id}`, 10 * 60_000, () => immich.getAssetInfo({ id })).catch(() => null))).filter(
+    (a): a is immich.AssetResponseDto => !!a,
+  );
   const overrides = dateOverrides.all();
   const items = (await tidyAssets(assets)).map((a) => (overrides.has(a.id) ? { ...a, localDateTime: `${overrides.get(a.id)}.000Z` } : a));
   return items.sort((a, b) => a.localDateTime.localeCompare(b.localDateTime)).map(toPhotoItem);
@@ -48,15 +49,13 @@ export async function albumRoutes(app: FastifyInstance) {
   app.get('/api/albums', async (req) => {
     const list = albums.list().map(view);
     if (unrestricted(req.user!)) return list;
-    // 受限成员：只算自己能看的照片，一张都看不到的相册（又不是自己建的）不显示
-    const result = await Promise.all(
-      list.map(async (a) => {
-        const ids = (await Promise.all(albums.assetIds(a.id).map(async (id) => ((await canAccessAsset(req.user!, id)) ? id : null)))).filter((id) => id !== null);
-        if (!ids.length && a.createdBy !== req.user!.id) return null;
+    // 受限成员：只算自己能看的照片，一张都看不到的别人的相册不显示（和打开相册时的规则一样）
+    const result = await mapLimit(list, 2, async (a) => {
+        const ids = await accessibleAssetIds(req.user!, albums.assetIds(a.id));
+        if (!ids.length && !canManageAlbum(req.user!, a)) return null;
         const cover = a.coverAssetId && ids.includes(a.coverAssetId) ? a.coverAssetId : (ids[0] ?? null);
         return { ...a, count: ids.length, coverAssetId: cover };
-      }),
-    );
+    });
     return result.filter((a) => a !== null);
   });
 
@@ -69,10 +68,9 @@ export async function albumRoutes(app: FastifyInstance) {
     const { id } = idParams.parse(req.params);
     const album = albums.get(id);
     if (!album) return reply.code(404).send({ message: '相册不存在' });
-    const items = await albumItems(id, (assetId) => canAccessAsset(req.user!, assetId));
     // 和列表一致：受限成员一张都看不到的别人的相册，当作不存在
-    if (!items.length && !canManageAlbum(req.user!, album) && albums.assetIds(id).length) return reply.code(404).send({ message: '相册不存在' });
-    return { album: view(album), items };
+    if (!canManageAlbum(req.user!, album) && !(await accessibleAssetIds(req.user!, albums.assetIds(id))).length) return reply.code(404).send({ message: '相册不存在' });
+    return { album: view(album), items: await albumItems(id, (assetId) => canAccessAsset(req.user!, assetId)) };
   });
 
   app.put('/api/albums/:id', { preHandler: editors }, async (req, reply) => {

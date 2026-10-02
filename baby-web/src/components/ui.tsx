@@ -36,7 +36,9 @@ export function Avatar({ baby, size = 56 }: { baby: Pick<Baby, 'name' | 'thumbna
 
 type Layer = { id: number; close: () => void; history: boolean };
 const layers: Layer[] = [];
-let nextLayerId = 1;
+// 从当前时间开始编号：刷新页面后浏览器历史里还留着刷新前的层号，新的层号必须比它们大，
+// 不然按返回键时会被当成“已经退掉的层”，关不掉
+let nextLayerId = Date.now();
 const LAYER_KEY = 'babyAlbumLayer';
 /** 被返回键关掉的层：它在历史记录里的那一条已经没了，关闭时不用再后退 */
 const closedByBack = new Set<number>();

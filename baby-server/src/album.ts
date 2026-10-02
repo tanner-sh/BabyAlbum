@@ -88,7 +88,8 @@ async function correctedAssetsOf(baby: Baby, overrides: Map<string, string>): Pr
 const byTakenAt = (order: 'asc' | 'desc') => (a: Asset, b: Asset) =>
   order === 'asc' ? a.localDateTime.localeCompare(b.localDateTime) : b.localDateTime.localeCompare(a.localDateTime);
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+/** 并发数有上限的 map（别一下子向 Immich 发几百上千个请求） */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   await Promise.all(
@@ -182,16 +183,16 @@ type RangeOpts = { size?: number; page?: number; isFavorite?: boolean; order?: i
  */
 async function searchRange(baby: Baby, from: string, to: string, opts: Omit<RangeOpts, 'page'> = {}) {
   const want = opts.size ?? 1000;
-  const all: Asset[] = [];
+  // 日期更正过的照片每一页都会带上，按 id 去重
+  const all = new Map<string, Asset>();
   let hasMore = false;
   for (let page = 1; page <= 20; page++) {
     const items = await searchRangePage(baby, from, to, { ...opts, size: want, page });
-    all.push(...items);
+    for (const a of items) all.set(a.id, a);
     hasMore = items.hasMore;
-    if (!hasMore || new Set(all.map((a) => a.id)).size >= want) break;
+    if (!hasMore || all.size >= want) break;
   }
-  // 日期更正过的照片每一页都会带上，去重
-  const unique = [...new Map(all.map((a) => [a.id, a])).values()].sort(byTakenAt(opts.order === immich.AssetOrder.Desc ? 'desc' : 'asc'));
+  const unique = [...all.values()].sort(byTakenAt(opts.order === immich.AssetOrder.Desc ? 'desc' : 'asc'));
   return Object.assign(unique.slice(0, want), { hasMore: hasMore || unique.length > want });
 }
 
@@ -273,6 +274,7 @@ export async function timeline(baby: Baby, page: number, size: number, filter: {
   // localDateTime 是当地时间（形如 2025-12-22T08:00:00.000Z），直接按字符串比较
   const cap = filter.before && `${filter.before}T00:00:00.000Z`;
   if (filter.family) {
+    // 全家福是先取全部再分页的：先按 cap 筛掉，分页才从跳转的地方开始（下面那次筛选是给按 Immich 分页的情况用的）
     const all = (await filter.family()).filter((a) => !cap || a.localDateTime < cap);
     items = all.slice((page - 1) * size, page * size);
     nextPage = all.length > page * size ? page + 1 : null;
@@ -378,7 +380,11 @@ export function assetHasPerson(assetId: string, personIds: string[]) {
   return cached(`people:${assetId}`, 30 * 60_000, async () => {
     const asset = await immich.getAssetInfo({ id: assetId });
     return (asset.people ?? []).map((p) => p.id);
-  }).then((ids) => ids.some((id) => personIds.includes(id)));
+  })
+    .then((ids) => ids.some((id) => personIds.includes(id)))
+    // 照片已经从 Immich 删掉了（相册里还留着记录）、或者暂时查不到：当作看不到，不让整个请求出错。
+    // 失败不会进缓存（cached 失败时会删掉），下次还会重新查
+    .catch(() => false);
 }
 
 // ---------------------------------------------------------------- 日期问题检测
@@ -433,7 +439,12 @@ function folderHasBaby(baby: Baby, folder: string) {
  * 文件夹里有这类问题时，同文件夹中和建议日期相差很远的照片也一并列出（同一批交付的照片日期往往五花八门）；
  * 视频一般带着准确的拍摄时间，只有早于出生才列出。
  */
-export async function dateIssues(baby: Baby) {
+export function dateIssues(baby: Baby) {
+  // 每次打开宝宝页都会查；出生前照片多的家庭要翻很多页，缓存 10 分钟（更正日期、改生日时会清掉）
+  return cached(`date-issues:${baby.id}:${baby.birthday}`, 10 * 60_000, () => findDateIssues(baby));
+}
+
+async function findDateIssues(baby: Baby) {
   const overrides = dateOverrides.all();
   const isWrong = (a: Asset) => !overrides.has(a.id) && a.localDateTime.slice(0, 10) < baby.birthday;
   const before = await searchEvery({ personIds: [baby.immichPersonId], takenBefore: `${shiftDays(baby.birthday, 1)}T00:00:00.000Z`, visibility: immich.AssetVisibility.Timeline });

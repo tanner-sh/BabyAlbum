@@ -88,6 +88,19 @@ await page.goBack();
 await sleep(500);
 check('点关闭后按返回键回到首页', path(page) === '/', path(page));
 
+// 刷新页面后（浏览器历史里还留着刷新前的弹窗记录），返回键照样能关掉新打开的大图
+await page.goto(`${BASE}/baby/${baby.id}`, { waitUntil: 'networkidle0' });
+await page.waitForSelector('.tab-panel .grid .thumb', { timeout: 30000 });
+await page.evaluate(() => document.querySelector('.tab-panel .grid .thumb').click());
+await page.waitForSelector('.lightbox');
+await page.reload({ waitUntil: 'networkidle0' });
+await page.waitForSelector('.tab-panel .grid .thumb', { timeout: 30000 });
+await page.evaluate(() => document.querySelector('.tab-panel .grid .thumb').click());
+await page.waitForSelector('.lightbox');
+await page.goBack();
+await sleep(500);
+check('刷新页面后：返回键照样能关掉大图', !(await page.$('.lightbox')) && path(page).startsWith(`/baby/${baby.id}`), path(page));
+
 // ================================================================ 时间线：跳到某个月龄、切换标签保留位置
 await page.goto(`${BASE}/baby/${baby.id}`, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.tab-panel .grid .thumb', { timeout: 30000 });

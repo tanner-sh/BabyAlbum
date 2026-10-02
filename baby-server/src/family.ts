@@ -10,12 +10,17 @@ type Asset = immich.AssetResponseDto;
  * 全部人物（翻页取完；人脸识别会不断拆出新人物，几百上千个很常见，只取第一页会漏掉）。
  * Immich 的顺序：已命名的在前，其余按照片数从多到少
  */
-export async function allPeople(withHidden: boolean) {
+export function allPeople(withHidden: boolean) {
+  return peopleUntil(withHidden, () => false);
+}
+
+/** 按 Immich 的顺序翻页取人物，enough 返回 true 就停（只要前几十个没命名的人物时，不用把几千个都拉回来） */
+export async function peopleUntil(withHidden: boolean, enough: (people: immich.PersonResponseDto[]) => boolean) {
   const people: immich.PersonResponseDto[] = [];
   for (let page = 1; page <= 40; page++) {
-    const res = await immich.getAllPeople({ withHidden, page, size: 500 });
+    const res = await immich.getAllPeople({ withHidden, page, size: 200 });
     people.push(...res.people);
-    if (!res.hasNextPage) break;
+    if (!res.hasNextPage || enough(people)) break;
   }
   return people;
 }
@@ -94,9 +99,10 @@ export async function unnamedPeople(limit = 12) {
   const babies = babiesDb.list();
   const babyIds = new Set(babies.map((b) => b.immichPersonId));
   const skip = skipped();
-  const people = await allPeople(false);
   // 照片最多的 40 个没命名的人物里，找常和宝宝同框的
-  const candidates = people.filter((p) => !p.name && !babyIds.has(p.id) && !skip.has(p.id)).slice(0, 40);
+  const wanted = (p: immich.PersonResponseDto) => !p.name && !babyIds.has(p.id) && !skip.has(p.id);
+  const people = await peopleUntil(false, (list) => list.filter(wanted).length >= 40);
+  const candidates = people.filter(wanted).slice(0, 40);
   const stats = await Promise.all(
     candidates.map(async (p) => {
       const [assets, withBaby] = await Promise.all([

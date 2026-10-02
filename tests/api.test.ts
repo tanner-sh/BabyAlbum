@@ -257,6 +257,15 @@ if (other) {
     await admin.req('POST', `/api/albums/${a2.id}/assets`, { assetIds: [hiddenFromMember] });
     r = await member.req('POST', '/api/shares', { label: '我的分享', babyIds: [], albumId: a2.id });
     check('受限家人：相册里有看不到的照片时不能分享', r.status === 400, r);
+    // 相册里有一张已经从照片库删掉的照片（相册里还留着记录）：受限家人的列表、详情、分享都不能出错
+    const gone = crypto.randomUUID();
+    const a3 = (await admin.req('POST', '/api/albums', { title: '有删掉的照片' })).data;
+    await admin.req('POST', `/api/albums/${a3.id}/assets`, { assetIds: [mine.id, gone] });
+    r = await member.req('GET', '/api/albums');
+    check('相册里有已删除的照片：受限家人的相册列表正常', r.status === 200 && r.data.some((a: any) => a.id === a3.id && a.count === 1), r.status);
+    r = await member.req('GET', `/api/albums/${a3.id}`);
+    check('相册里有已删除的照片：受限家人能打开相册', r.status === 200 && r.data.items.length === 1, r.status);
+    await admin.req('DELETE', `/api/albums/${a3.id}`);
     await admin.req('DELETE', `/api/shares/${adminShare.id}`);
     await admin.req('DELETE', `/api/albums/${a1.id}`);
     await admin.req('DELETE', `/api/albums/${a2.id}`);
