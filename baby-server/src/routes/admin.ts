@@ -589,7 +589,8 @@ export async function adminRoutes(app: FastifyInstance) {
   // ======== 人物（人脸识别的结果）
 
   app.get('/api/admin/people', async (req) => {
-    const { hidden } = z.object({ hidden: z.coerce.boolean().default(false) }).parse(req.query);
+    // z.coerce.boolean() 会把字符串 "false" 也当成 true，要用 stringbool
+    const { hidden } = z.object({ hidden: z.stringbool().default(false) }).parse(req.query);
     const people: immich.PersonResponseDto[] = [];
     for (let page = 1; page <= 20; page++) {
       const res = await immich.getAllPeople({ withHidden: hidden, page, size: 500 });

@@ -171,6 +171,19 @@ console.log('   认领建议：', JSON.stringify(r.data));
 r = await admin.req('GET', `/api/admin/people/${baby.immichPersonId}/similar`);
 check('相似人物：排除同框过的', r.status === 200 && Array.isArray(r.data) && r.data.every((p: any) => p.together <= Math.max(1, p.assets * 0.01)), r);
 console.log('   相似人物：', JSON.stringify(r.data).slice(0, 200));
+// 隐藏一个人物：不勾“显示已隐藏的”时不出现，勾了才出现（以前 hidden=false 被当成 true）
+{
+  const all = (await admin.req('GET', '/api/admin/people?hidden=false')).data as any[];
+  const target = all.find((p) => !p.baby && p.id !== baby.immichPersonId);
+  if (target) {
+    await admin.req('PUT', `/api/admin/people/${target.id}`, { isHidden: true });
+    const visible = (await admin.req('GET', '/api/admin/people?hidden=false')).data as any[];
+    const withHidden = (await admin.req('GET', '/api/admin/people?hidden=true')).data as any[];
+    check('隐藏的人物：不显示已隐藏时不出现', !visible.some((p) => p.id === target.id) && visible.every((p) => !p.isHidden), visible.filter((p) => p.isHidden).length);
+    check('隐藏的人物：显示已隐藏时出现', withHidden.some((p) => p.id === target.id && p.isHidden));
+    await admin.req('PUT', `/api/admin/people/${target.id}`, { isHidden: false });
+  }
+}
 r = await admin.req('GET', '/api/admin/duplicates');
 check('重复照片接口', r.status === 200 && Array.isArray(r.data), r);
 r = await admin.req('GET', '/api/admin/immich/settings');
