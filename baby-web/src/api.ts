@@ -416,6 +416,8 @@ export type ImportProgress = {
   videos: TypeProgress | null;
   countedAt: string | null;
   counting: boolean;
+  /** 导入结束后还读不出来的文件（空文件、没拷完整的文件），size 是存储上的文件大小 */
+  unreadable: { id: string; type: 'image' | 'video'; path: string; size: number | null }[];
 };
 export type PersonSuggestion = { id: string; assets: number; thumbnailUrl: string } | null;
 export type SimilarPerson = { id: string; name: string; assets: number; together: number; thumbnailUrl: string };

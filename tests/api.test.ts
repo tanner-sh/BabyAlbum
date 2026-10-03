@@ -165,6 +165,7 @@ check('搜索词不能为空', r.status === 400, r.status);
 // ---------------------------------------------------------------- 管理：导入进度、人物、重复
 r = await admin.req('GET', '/api/admin/import-progress');
 check('导入进度', r.status === 200 && Array.isArray(r.data.stages) && r.data.stages.length === 8, r);
+check('导入进度：返回读不出来的文件列表', Array.isArray(r.data.unreadable), r.data.unreadable);
 r = await admin.req('GET', '/api/admin/people/suggestion');
 check('认领建议接口', r.status === 200, r);
 console.log('   认领建议：', JSON.stringify(r.data));

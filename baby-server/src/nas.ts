@@ -181,3 +181,11 @@ export function startNasReconcile(log: FastifyBaseLogger) {
 }
 
 export { MounterError };
+
+/** /mnt/nas/1/宝宝相册/... → 客厅 NAS/宝宝相册/...（显示存储的名字，管理员认得出来） */
+export function storagePath(path: string) {
+  if (!path.startsWith(`${config.NAS_ROOT}/`)) return path;
+  const [id, ...rest] = path.slice(config.NAS_ROOT.length + 1).split('/');
+  const name = nasSources.list().find((n) => String(n.id) === id)?.name ?? id;
+  return [name, ...rest].join('/');
+}

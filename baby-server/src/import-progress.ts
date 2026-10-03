@@ -6,8 +6,10 @@
 //   按照片、视频分别计数；
 //   照片和视频的剩余时间用相邻两次统计之间的下降速度估算（视频要整个读一遍，比照片慢得多）
 
+import { stat } from 'node:fs/promises';
 import type { FastifyBaseLogger } from 'fastify';
-import { settings } from './db.ts';
+import { hiddenAssets, settings } from './db.ts';
+import { storagePath } from './nas.ts';
 import { immichConnected } from './immich-link.ts';
 import { immich } from './immich.ts';
 
@@ -31,7 +33,11 @@ const STAGES: { name: immich.QueueName; label: string }[] = [
 
 type Sample = { t: number; remaining: Record<string, number> };
 type TypeCount = { total: number; pending: number };
-type Count = { t: number; image: TypeCount; video: TypeCount };
+/** 还没读出拍摄信息的文件（导入结束后还这样，就是读不出来：空文件、没拷完整的文件） */
+type Stuck = { id: string; type: 'image' | 'video'; path: string; size: number | null };
+type Count = { t: number; image: TypeCount; video: TypeCount; stuck?: Stuck[]; afterImport?: boolean };
+/** 导入流水线里读文件的几步：都跑完了，还没读出来的文件就是读不出来 */
+const READ_STAGES = [immich.QueueName.Library, immich.QueueName.Sidecar, immich.QueueName.MetadataExtraction, immich.QueueName.ThumbnailGeneration];
 
 const samples: Sample[] = [];
 const counts: Count[] = [];
@@ -75,22 +81,24 @@ async function sample(log: FastifyBaseLogger) {
     while (samples.length && samples[0].t < Date.now() - KEEP_MS) samples.shift();
     save();
 
-    const importing = [immich.QueueName.Library, immich.QueueName.Sidecar, immich.QueueName.MetadataExtraction].some((q) => remaining[q] > 0);
+    const importing = READ_STAGES.some((q) => remaining[q] > 0);
     const lastCount = counts.at(-1);
     const due = !lastCount || Date.now() - lastCount.t >= COUNT_MS;
-    // 导入期间定期统计；导入完了再统计一次，让数字归零
-    if (!counting && due && (importing || (lastCount && lastCount.image.pending + lastCount.video.pending > 0))) void countPending(log);
+    // 导入期间定期统计；导入完了再统计一次（让数字归零，或者找出读不出来的文件），之后就不再反复统计
+    const finalCount = lastCount && !lastCount.afterImport && lastCount.image.pending + lastCount.video.pending > 0;
+    if (!counting && due && (importing || finalCount)) void countPending(log, !importing);
   } catch (err) {
     log.debug({ err }, '读取任务队列失败');
   }
 }
 
 /** 逐页统计还没读完拍摄信息的照片、视频（7 万个文件大约要 30 秒，只在导入期间做） */
-async function countPending(log: FastifyBaseLogger) {
+async function countPending(log: FastifyBaseLogger, afterImport: boolean) {
   counting = true;
   try {
     const image = { total: 0, pending: 0 };
     const video = { total: 0, pending: 0 };
+    const stuck: immich.AssetResponseDto[] = [];
     for (let page = 1; page <= 1000; page++) {
       const { assets } = await immich.searchAssets({ metadataSearchDto: { page, size: 1000 } });
       for (const a of assets.items) {
@@ -99,11 +107,25 @@ async function countPending(log: FastifyBaseLogger) {
         const bucket = a.type === immich.AssetTypeEnum.Video ? video : a.type === immich.AssetTypeEnum.Image ? image : null;
         if (!bucket) continue;
         bucket.total++;
-        if (a.width === null) bucket.pending++;
+        if (a.width === null) {
+          bucket.pending++;
+          if (stuck.length < 100) stuck.push(a);
+        }
       }
       if (!assets.nextPage) break;
     }
-    counts.push({ t: Date.now(), image, video });
+    // 导入结束后还没读出来的，看一下存储上的文件有多大（空文件、只有几 KB 的残缺文件，一看就知道）
+    const stuckList: Stuck[] = afterImport
+      ? await Promise.all(
+          stuck.map(async (a) => ({
+            id: a.id,
+            type: a.type === immich.AssetTypeEnum.Video ? ('video' as const) : ('image' as const),
+            path: storagePath(a.originalPath),
+            size: await stat(a.originalPath).then((s) => s.size, () => null),
+          })),
+        )
+      : [];
+    counts.push({ t: Date.now(), image, video, stuck: stuckList, afterImport });
     while (counts.length && counts[0].t < Date.now() - KEEP_MS) counts.shift();
     save();
   } catch (err) {
@@ -127,6 +149,10 @@ export function importProgress() {
     return { name: s.name, label: s.label, remaining, ratePerHour: rate, etaHours: eta(remaining, rate) };
   });
   const count = counts.at(-1);
+  // 读文件的几步都跑完了，导入结束后统计出的“还没读出来”的文件就是读不出来的；在相册里隐藏了的不再列出
+  const reading = READ_STAGES.some((q) => (last?.remaining[q] ?? 0) > 0);
+  const hidden = hiddenAssets.ids();
+  const unreadable = !reading && count?.afterImport ? (count.stuck ?? []).filter((s) => !hidden.has(s.id)) : [];
   // 照片、视频的速度用最近两小时内的统计算（10 分钟才统计一次，窗口要长一些）
   const typeRate = (key: 'image' | 'video') => ratePerHour(counts, (c) => c.t, (c) => c[key].pending, 2 * 3600_000);
   // Immich 按队列顺序处理，经常一段时间只在处理视频（或只在处理照片）。
@@ -137,7 +163,10 @@ export function importProgress() {
     const rate = rates[key];
     const other = rates[key === 'image' ? 'video' : 'image'];
     const queued = count[key].pending > 0 && (rate ?? 0) < (other ?? 0) * 0.05;
-    return { ...count[key], ratePerHour: rate, etaHours: queued ? null : eta(count[key].pending, rate), queued };
+    // 读不出来的（包括已经隐藏的）不算“还剩”
+    const broken = !reading && count.afterImport ? (count.stuck ?? []).filter((s) => s.type === key).length : 0;
+    const pending = Math.max(0, count[key].pending - broken);
+    return { ...count[key], pending, ratePerHour: rate, etaHours: queued ? null : eta(pending, rate), queued };
   };
   return {
     importing: stages.some((s) => s.remaining > 0),
@@ -148,5 +177,6 @@ export function importProgress() {
     videos: byType('video'),
     countedAt: count ? new Date(count.t).toISOString() : null,
     counting,
+    unreadable,
   };
 }

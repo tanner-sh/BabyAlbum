@@ -4453,3 +4453,40 @@ details.account-section[open] summary {
   margin-top: 0;
   color: var(--accent);
 }
+
+/* 导入进度：读不出来的文件 */
+.unreadable h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--danger);
+  font-size: 1rem;
+}
+
+.import-progress .unreadable {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.unreadable-list {
+  margin: 8px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.unreadable-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.unreadable-path {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}

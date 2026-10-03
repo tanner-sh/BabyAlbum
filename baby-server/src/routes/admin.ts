@@ -13,7 +13,7 @@ import { importProgress } from '../import-progress.ts';
 import { allPeople, peopleUntil, skipPerson, unnamedPeople, unskipPerson } from '../family.ts';
 import { healthReport, runHealthChecks } from '../health.ts';
 import { MAP_TILES, mapTiles, tiandituKey } from '../map.ts';
-import { getBackupTarget, isMounterAvailable, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
+import { getBackupTarget, isMounterAvailable, storagePath, mountSource, MounterError, mountState, nasMountPath, nasTarget, setBackupTarget, testConnection, unmountSource } from '../nas.ts';
 import { connectWithCredentials, immichConnected, immichStatus, MULTILINGUAL_CLIP_MODEL } from '../immich-link.ts';
 import { immich } from '../immich.ts';
 import { hashPassword } from '../password.ts';
@@ -726,13 +726,6 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   /** 文件在哪个存储的哪个位置，给人看的 */
-  function storagePath(path: string) {
-    if (!path.startsWith(`${config.NAS_ROOT}/`)) return path;
-    const [id, ...rest] = path.slice(config.NAS_ROOT.length + 1).split('/');
-    const name = nasSources.list().find((n) => String(n.id) === id)?.name ?? id;
-    return [name, ...rest].join('/');
-  }
-
   app.get('/api/admin/duplicates', async () => {
     const groups = await immich.getAssetDuplicates();
     const hidden = hiddenAssets.ids();
