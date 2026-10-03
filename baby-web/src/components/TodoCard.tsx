@@ -6,11 +6,13 @@ import { get, type UnnamedPerson } from '../api';
 import { useHealth } from '../pages/admin/HealthPage';
 
 const COLLAPSE_KEY = 'baby-album:todo-collapsed';
+/** 用户自己收起、展开过就记住；没选过时返回 null（默认收起，有严重问题才展开） */
 const loadCollapsed = () => {
   try {
-    return localStorage.getItem(COLLAPSE_KEY) === '1';
+    const v = localStorage.getItem(COLLAPSE_KEY);
+    return v === null ? null : v === '1';
   } catch {
-    return false;
+    return null;
   }
 };
 
@@ -20,7 +22,7 @@ type Todo = { key: string; icon: ReactNode; text: string; to: string; level: 'er
 export function TodoCard() {
   const health = useHealth();
   const unnamed = useQuery({ queryKey: ['admin', 'people', 'unnamed'], queryFn: () => get<UnnamedPerson[]>('/api/admin/people/unnamed'), staleTime: 5 * 60_000 });
-  const [collapsed, setCollapsed] = useState(loadCollapsed);
+  const [chosen, setChosen] = useState(loadCollapsed);
 
   const todos: Todo[] = [];
   const checks = health.data?.checks ?? [];
@@ -31,9 +33,11 @@ export function TodoCard() {
   const often = (unnamed.data ?? []).filter((p) => p.withBaby >= 10);
   if (often.length) todos.push({ key: 'family', icon: <Users size={16} />, text: `${often.length} 位常和宝宝一起出现的人还没有名字`, to: '/admin/people', level: 'info' });
   if (!todos.length) return null;
+  const hasError = todos.some((t) => t.level === 'error');
+  const collapsed = chosen ?? !hasError;
 
   const toggle = () => {
-    setCollapsed(!collapsed);
+    setChosen(!collapsed);
     try {
       localStorage.setItem(COLLAPSE_KEY, collapsed ? '0' : '1');
     } catch {
@@ -42,7 +46,7 @@ export function TodoCard() {
   };
 
   return (
-    <section className={`todo-card ${todos.some((t) => t.level === 'error') ? 'has-error' : ''}`}>
+    <section className={`todo-card ${hasError ? 'has-error' : ''}`}>
       <button className="todo-head" onClick={toggle} aria-expanded={!collapsed}>
         <ListTodo size={18} />
         <strong>需要处理的事</strong>

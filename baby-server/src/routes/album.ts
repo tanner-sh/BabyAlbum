@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { computeAge, localToday } from '../age.ts';
-import { assetHasPerson, dayItems, growthWall, liveVideoOf, monthItems, onThisDay, review, smartSearch, timeline } from '../album.ts';
+import { assetHasPerson, babyHome, dayItems, growthWall, liveVideoOf, monthItems, onThisDay, review, smartSearch, timeline } from '../album.ts';
 import { secureCookie } from '../auth.ts';
 import { dateOverrides, growthRecords, journal, milestones, social, type Baby } from '../db.ts';
 import { notifyInteraction } from '../push.ts';
@@ -140,6 +140,11 @@ export function registerAlbumRoutes(app: FastifyInstance, prefix: string, resolv
   app.get(`${prefix}/babies/:id/on-this-day`, async (req, reply) => {
     const baby = await babyFrom(req, reply);
     return baby ? onThisDay(baby) : reply;
+  });
+
+  app.get(`${prefix}/babies/:id/home`, async (req, reply) => {
+    const baby = await babyFrom(req, reply);
+    return baby ? babyHome(baby) : reply;
   });
 
   app.get(`${prefix}/babies/:id/growth`, async (req, reply) => {

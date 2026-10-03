@@ -367,6 +367,33 @@ export function growthWall(baby: Baby) {
   });
 }
 
+/**
+ * 首页：封面（最近一张收藏的照片，没有收藏就用最新一张照片）、最近的照片、这周新增了多少张。
+ * 收藏变化时 clearAlbumCache 会清掉缓存，封面跟着换
+ */
+export function babyHome(baby: Baby) {
+  return cached(`home:${baby.id}:${localToday()}`, 5 * 60_000, async () => {
+    const latest = await timeline(baby, 1, 12);
+    const recent = latest.groups.flatMap((g) => g.items);
+    const { assets } = await immich.searchAssets({
+      metadataSearchDto: {
+        personIds: [baby.immichPersonId],
+        isFavorite: true,
+        type: immich.AssetTypeEnum.Image,
+        order: immich.AssetOrder.Desc,
+        size: 10,
+        visibility: immich.AssetVisibility.Timeline,
+      },
+    });
+    const favorite = (await tidy(assets.items))[0];
+    const cover = favorite ? toItem(baby, favorite) : (recent.find((i) => i.type === 'IMAGE') ?? null);
+    const { total: thisWeek } = await immich.searchAssetStatistics({
+      statisticsSearchDto: { personIds: [baby.immichPersonId], takenAfter: `${shiftDays(localToday(), -6)}T00:00:00.000Z`, visibility: immich.AssetVisibility.Timeline },
+    });
+    return { cover, recent, thisWeek };
+  });
+}
+
 /** 某个月龄的全部照片，按拍摄时间正序。用于成长墙点进去、同龄对比 */
 export async function monthItems(baby: Baby, months: number) {
   const from = monthDate(baby.birthday, months);

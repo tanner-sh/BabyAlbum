@@ -1,16 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby as BabyIcon, CalendarHeart, Plus } from 'lucide-react';
+import { Baby as BabyIcon, CalendarHeart, ChevronRight, Images, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useNavigate, useOutletContext } from 'react-router';
-import { get, request, thumbUrl, useAlbum, useBabies, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
+import { get, request, thumbUrl, useAlbum, useBabies, useBabyHome, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
 import { ClaimBanner, SexPicker } from '../components/ClaimBaby';
 import { FaceStrip } from '../components/PersonPhotos';
 import { RecentInteractions } from '../components/RecentInteractions';
 import { TodoCard } from '../components/TodoCard';
 import { ReviewBanner } from '../components/ReviewTab';
 import { Avatar, Empty, ErrorBox, Modal, Spinner } from '../components/ui';
-import { formatDate } from '../format';
+import { Lightbox } from '../components/Lightbox';
+import { PhotoGrid } from '../components/PhotoGrid';
+import { daysBetween, formatDate, nextMoment, today } from '../format';
 
 export function HomePage() {
   const me = useOutletContext<Me>();
@@ -23,9 +25,9 @@ export function HomePage() {
 
   return (
     <>
-      {isAdmin && <TodoCard />}
       {babies.data.length === 0 ? (
         <>
+          {isAdmin && <TodoCard />}
           {/* 还没有宝宝时，主动问照片最多的人物是不是宝宝 */}
           {isAdmin && <ClaimBanner />}
           <Empty icon={<BabyIcon size={48} />} title="欢迎使用宝宝相册">
@@ -43,35 +45,88 @@ export function HomePage() {
           </Empty>
         </>
       ) : (
-        <>
-          <div className="baby-cards">
+        // 电脑上两栏：左边是宝宝（封面、最近的照片），右边是回顾、留言、待办；手机上从上往下排
+        <div className="home">
+          <div className="home-main">
             {babies.data.map((b) => (
-              <Link key={b.id} to={`/baby/${b.id}`} className="baby-card">
-                <Avatar baby={b} size={56} />
-                <div>
-                  <h2>{b.name}</h2>
-                  <p className="baby-age">{b.ageLabel}</p>
-                  <p className="muted small">{formatDate(b.birthday)} 出生</p>
-                </div>
-              </Link>
+              <section key={b.id} className="home-baby">
+                <BabyHero baby={b} />
+                <RecentPhotos baby={b} />
+              </section>
             ))}
+            {isAdmin && (
+              <button className="link-btn add-baby" onClick={() => setAdding(true)}>
+                <Plus size={14} /> 添加宝宝
+              </button>
+            )}
           </div>
-          {isAdmin && (
-            <button className="link-btn add-baby" onClick={() => setAdding(true)}>
-              <Plus size={14} /> 添加宝宝
-            </button>
-          )}
-          {babies.data.map((b) => (
-            <ReviewBanner key={`review-${b.id}`} baby={b} />
-          ))}
-          {babies.data.map((b) => (
-            <TodayMemories key={b.id} baby={b} />
-          ))}
-          <RecentInteractions />
-        </>
+          <aside className="home-side">
+            {babies.data.map((b) => (
+              <ReviewBanner key={`review-${b.id}`} baby={b} />
+            ))}
+            {babies.data.map((b) => (
+              <TodayMemories key={b.id} baby={b} />
+            ))}
+            <RecentInteractions />
+            {/* 待办只有管理员看得到，放在旁边，默认收成一行（有严重问题才展开） */}
+            {isAdmin && <TodoCard />}
+          </aside>
+        </div>
       )}
       {adding && <AddBabyModal onClose={() => setAdding(false)} />}
     </>
+  );
+}
+
+/** 宝宝的封面：最近一张收藏的照片做背景，名字、月龄、第几天、下一个值得期待的日子 */
+function BabyHero({ baby }: { baby: Baby }) {
+  const album = useAlbum();
+  const home = useBabyHome(baby.id);
+  const cover = home.data?.cover;
+  const now = today();
+  const days = daysBetween(baby.birthday, now) + 1;
+  const next = nextMoment(baby.birthday, now);
+  return (
+    <Link to={`/baby/${baby.id}`} className={`baby-hero ${cover ? 'has-cover' : ''}`} style={cover ? { backgroundImage: `url(${thumbUrl(album, cover.id, 'preview')})` } : undefined}>
+      <div className="baby-hero-text">
+        <Avatar baby={baby} size={56} />
+        <div>
+          <h2>
+            {baby.name}
+            <span className="baby-hero-age">{baby.ageLabel}</span>
+          </h2>
+          <p>
+            {days > 0 ? `今天是第 ${days.toLocaleString()} 天` : `${formatDate(baby.birthday)} 出生`}
+            {next && ` · ${next}`}
+          </p>
+        </div>
+        <ChevronRight size={22} className="baby-hero-go" />
+      </div>
+    </Link>
+  );
+}
+
+/** 最近的照片：点一张直接看大图 */
+function RecentPhotos({ baby }: { baby: Baby }) {
+  const home = useBabyHome(baby.id);
+  const [open, setOpen] = useState<number | null>(null);
+  const items = home.data?.recent ?? [];
+  if (home.isPending) return <Spinner />;
+  if (!items.length) return null;
+  return (
+    <div className="home-recent">
+      <header className="group-header">
+        <h3>
+          <Images size={18} /> 最近的照片
+        </h3>
+        {home.data!.thisWeek > 0 && <span className="muted">这周新增 {home.data!.thisWeek.toLocaleString()} 张</span>}
+        <Link to={`/baby/${baby.id}`} className="muted small home-more">
+          全部 ›
+        </Link>
+      </header>
+      <PhotoGrid items={items} onOpen={setOpen} />
+      {open !== null && <Lightbox items={items} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} hasMore />}
+    </div>
   );
 }
 

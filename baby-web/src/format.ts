@@ -41,6 +41,16 @@ export function monthsLabel(months: number): string {
   return rest ? `${years} 岁 ${rest} 个月` : `${years} 岁`;
 }
 
+/** 下一个值得期待的日子：1 岁前是下一个满月，之后是下一个“X 岁半”或生日。还没出生时返回 null */
+export function nextMoment(birthday: string, now = today()): string | null {
+  const months = ageMonths(birthday, now);
+  if (months < 0) return null;
+  const years = Math.floor(months / 12);
+  const [target, text] =
+    months < 12 ? [months + 1, `满 ${monthsLabel(months + 1)}`] : months % 12 < 6 ? [years * 12 + 6, `就 ${years} 岁半`] : [(years + 1) * 12, `就是 ${years + 1} 岁生日`];
+  return `再过 ${daysBetween(now, monthDate(birthday, target))} 天${text}`;
+}
+
 export function today(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

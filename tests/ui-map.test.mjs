@@ -22,7 +22,7 @@ async function newPage(mobile) {
   await page.type('input[autocomplete=username]', creds.username);
   await page.type('input[autocomplete=current-password]', creds.password);
   await page.click('button.btn-primary');
-  await page.waitForSelector('.baby-card');
+  await page.waitForSelector('.baby-hero');
   return page;
 }
 const text = (page) => page.evaluate(() => document.body.innerText);

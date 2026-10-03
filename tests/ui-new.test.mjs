@@ -81,9 +81,19 @@ await page.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
 await page.type('input[autocomplete=username]', creds.username);
 await page.type('input[autocomplete=current-password]', creds.password);
 await page.click('button.btn-primary');
-await page.waitForSelector('.baby-card');
+await page.waitForSelector('.baby-hero');
 // 要先统计每个人物和宝宝同框的次数，提示会晚一点出来
-const familyHint = await page.waitForFunction(() => document.querySelector('.todo-card')?.innerText.includes('常和宝宝一起出现的人还没有名字'), { timeout: 20000 }).then(() => true, () => false);
+// 待办默认收成一行（没有严重问题时），展开再看
+const familyHint = await page
+  .waitForFunction(
+    () => {
+      const head = document.querySelector('.todo-card .todo-head');
+      if (head?.getAttribute('aria-expanded') === 'false') head.click();
+      return document.querySelector('.todo-card')?.innerText.includes('常和宝宝一起出现的人还没有名字');
+    },
+    { timeout: 20000, polling: 500 },
+  )
+  .then(() => true, () => false);
 check('首页“需要处理的事”里提示给家人起名字', familyHint);
 check('已经有宝宝时不再问“是宝宝吗”（和起名字的提示矛盾）', !(await text(page)).includes('是宝宝吗'));
 

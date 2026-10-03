@@ -36,7 +36,7 @@ await page.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
 await page.type('input[autocomplete=username]', creds.username);
 await page.type('input[autocomplete=current-password]', creds.password);
 await page.click('button.btn-primary');
-await page.waitForSelector('.baby-card');
+await page.waitForSelector('.baby-hero');
 
 const settings = () => page.evaluate(() => fetch('/api/admin/app-settings').then((r) => r.json()));
 const clickOption = (label) => page.evaluate((l) => [...document.querySelectorAll('.role-option')].find((b) => b.innerText.startsWith(l)).click(), label);

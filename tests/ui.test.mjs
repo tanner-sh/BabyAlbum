@@ -36,14 +36,14 @@ async function login(page) {
   await page.type('input[autocomplete=username]', creds.username);
   await page.type('input[autocomplete=current-password]', creds.password);
   await page.click('button.btn-primary');
-  await page.waitForSelector('.baby-card');
+  await page.waitForSelector('.baby-hero');
 }
 
 // ================================================================ 桌面
 {
   const page = await newPage(false);
   await login(page);
-  const babyHref = await page.$eval('.baby-card', (a) => a.getAttribute('href'));
+  const babyHref = await page.$eval('.baby-hero', (a) => a.getAttribute('href'));
   await page.goto(`${BASE}${babyHref}`, { waitUntil: 'networkidle0' });
   const tabs = await page.$$eval('.tabs .tab', (els) => els.map((e) => e.textContent?.trim()));
   check('宝宝页 3 个标签', tabs.join('|') === '照片|回顾|记录', tabs);
@@ -274,7 +274,7 @@ async function login(page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check('手机上没有横向滚动', overflow <= 0, overflow);
   await page.screenshot({ path: `${SHOTS}mobile-home.png` });
-  const babyHref = await page.$eval('.baby-card', (a) => a.getAttribute('href'));
+  const babyHref = await page.$eval('.baby-hero', (a) => a.getAttribute('href'));
   // 旧地址（tab=measurements）也能打开
   await page.goto(`${BASE}${babyHref}?tab=measurements`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.growth-chart svg');

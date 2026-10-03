@@ -192,6 +192,14 @@ export function useOnThisDay(babyId: number) {
   });
 }
 
+/** 首页：封面、最近的照片、这周新增 */
+export type BabyHome = { cover: AlbumItem | null; recent: AlbumItem[]; thisWeek: number };
+
+export function useBabyHome(babyId: number) {
+  const album = useAlbum();
+  return useQuery({ queryKey: [album.base, 'home', babyId], queryFn: () => get<BabyHome>(`${album.base}/babies/${babyId}/home`) });
+}
+
 export function useGrowth(babyId: number) {
   const album = useAlbum();
   return useQuery({

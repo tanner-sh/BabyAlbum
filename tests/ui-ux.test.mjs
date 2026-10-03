@@ -66,10 +66,46 @@ await page.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
 await page.type('input[autocomplete=username]', creds.username);
 await page.type('input[autocomplete=current-password]', creds.password);
 await page.click('button.btn-primary');
-await page.waitForSelector('.baby-card');
+await page.waitForSelector('.baby-hero');
+
+// ================================================================ 首页：封面、最近的照片、两栏
+await page.waitForSelector('.baby-hero');
+const hero = await page.$eval('.baby-hero', (e) => e.innerText);
+check('首页封面：名字、第几天、下一个日子', hero.includes(baby.name) && /今天是第 [\d,]+ 天/.test(hero) && /再过 \d+ 天/.test(hero), hero);
+await page.waitForSelector('.home-recent .thumb', { timeout: 30000 });
+const recentCount = await page.$$eval('.home-recent .thumb', (t) => t.length);
+check('首页最近的照片：最多 12 张', recentCount > 0 && recentCount <= 12, recentCount);
+await page.click('.home-recent .thumb');
+await page.waitForSelector('.lightbox');
+check('首页点最近的照片打开大图', true);
+await page.keyboard.press('Escape');
+await sleep(400);
+const cols = await page.evaluate(() => {
+  const m = document.querySelector('.home-main').getBoundingClientRect();
+  const sd = document.querySelector('.home-side').getBoundingClientRect();
+  return { mainLeft: m.left, sideLeft: sd.left, mainRight: m.right };
+});
+check('电脑上首页两栏', cols.sideLeft >= cols.mainRight, cols);
+await page.screenshot({ path: `${SHOTS}home.png` });
+{
+  const phoneHome = await newPage();
+  await phoneHome.emulate({ viewport: { width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  await phoneHome.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
+  await phoneHome.type('input[autocomplete=username]', creds.username);
+  await phoneHome.type('input[autocomplete=current-password]', creds.password);
+  await phoneHome.click('button.btn-primary');
+  await phoneHome.waitForSelector('.home-recent .thumb', { timeout: 30000 });
+  const layout = await phoneHome.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - innerWidth,
+    stacked: document.querySelector('.home-side').getBoundingClientRect().top >= document.querySelector('.home-main').getBoundingClientRect().bottom - 1,
+  }));
+  check('手机上首页单栏、没有横向滚动', layout.overflow <= 0 && layout.stacked, layout);
+  await phoneHome.screenshot({ path: `${SHOTS}home-phone.png`, fullPage: true });
+  await phoneHome.browserContext().close();
+}
 
 // ================================================================ 返回键：关掉大图，不离开页面
-await page.click(`a.baby-card[href="/baby/${baby.id}"]`);
+await page.click(`a.baby-hero[href="/baby/${baby.id}"]`);
 await page.waitForSelector('.tab-panel .grid .thumb', { timeout: 30000 });
 const babyPath = path(page);
 await page.evaluate(() => document.querySelector('.tab-panel .grid .thumb').click());
@@ -87,6 +123,40 @@ await sleep(300);
 await page.goBack();
 await sleep(500);
 check('点关闭后按返回键回到首页', path(page) === '/', path(page));
+
+// 手机网络慢：大图下载完之前不显示半截图，垫着小图；实况视频等大图下载完才开始下载
+{
+  const slow = await newPage();
+  await slow.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
+  await slow.type('input[autocomplete=username]', creds.username);
+  await slow.type('input[autocomplete=current-password]', creds.password);
+  await slow.click('button.btn-primary');
+  await slow.waitForSelector('.baby-hero');
+  await slow.goto(`${BASE}/baby/${baby.id}`, { waitUntil: 'networkidle0' });
+  await slow.waitForSelector('.tab-panel .grid .thumb', { timeout: 30000 });
+  // 大图（preview）很慢，其他照常
+  await slow.setRequestInterception(true);
+  const liveRequests = [];
+  slow.on('request', (r) => {
+    if (r.url().includes('/live')) liveRequests.push(Date.now());
+    if (r.url().includes('size=preview')) setTimeout(() => r.continue().catch(() => {}), 2500);
+    else r.continue().catch(() => {});
+  });
+  const live = await slow.$('.tab-panel .grid .thumb-live');
+  await (live ? live.evaluate((e) => e.closest('.thumb').click()) : slow.evaluate(() => document.querySelector('.tab-panel .grid .thumb').click()));
+  await slow.waitForSelector('.lightbox');
+  await sleep(1200);
+  const during = await slow.evaluate(() => ({
+    placeholder: !!document.querySelector('.lightbox-placeholder'),
+    hidden: document.querySelector('.lightbox-media > img')?.classList.contains('lightbox-pending'),
+  }));
+  check('慢网络：大图下载完之前先藏起来，垫着小图', during.placeholder && during.hidden, during);
+  if (live) check('慢网络：实况视频等大图下载完才开始下载', liveRequests.length === 0, liveRequests.length);
+  await slow.waitForSelector('.lightbox-placeholder', { hidden: true, timeout: 15000 }).catch(() => {});
+  const after = await slow.evaluate(() => document.querySelector('.lightbox-media > img')?.classList.contains('lightbox-pending'));
+  check('慢网络：大图下载完后显示出来', after === false && !(await slow.$('.lightbox-placeholder')));
+  await slow.browserContext().close();
+}
 
 // 刷新页面后（浏览器历史里还留着刷新前的弹窗记录），返回键照样能关掉新打开的大图
 await page.goto(`${BASE}/baby/${baby.id}`, { waitUntil: 'networkidle0' });

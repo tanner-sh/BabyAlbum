@@ -4128,3 +4128,185 @@ details.account-section[open] summary {
   color: var(--accent);
   font-size: 0.9rem;
 }
+
+/* 大图、实况视频还没准备好时先藏起来（下面垫着小图），不显示半截图或黑屏 */
+.lightbox-pending {
+  opacity: 0;
+}
+
+.lightbox-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: 3px solid rgb(255 255 255 / 30%);
+  border-top-color: #fff;
+  border-radius: 50%;
+  opacity: 0;
+  /* 超过 0.3 秒还没加载好才显示，网络快时不闪 */
+  animation:
+    spin 0.8s linear infinite,
+    lightbox-loading-show 0s 0.3s forwards;
+  pointer-events: none;
+}
+
+@keyframes lightbox-loading-show {
+  to {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ 首页 */
+/* 电脑上两栏：左边宝宝（封面、最近的照片），右边回顾、留言、待办；窄屏从上往下排 */
+.home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .home {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+
+.home-baby + .home-baby {
+  margin-top: 28px;
+}
+
+.baby-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 260px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  color: var(--text);
+  text-decoration: none;
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface-2));
+  background-size: cover;
+  background-position: center 30%;
+  box-shadow: var(--shadow);
+}
+
+/* 有封面照片时：底部加一层渐变，文字用白色 */
+.baby-hero.has-cover {
+  color: #fff;
+}
+
+.baby-hero.has-cover::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgb(0 0 0 / 62%) 0%, rgb(0 0 0 / 18%) 45%, transparent 70%);
+}
+
+.baby-hero-text {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px 20px;
+}
+
+.baby-hero-text > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.baby-hero h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.baby-hero-age {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.baby-hero.has-cover .baby-hero-age {
+  color: #ffd9cb;
+}
+
+.baby-hero p {
+  margin: 4px 0 0;
+  font-size: 0.95rem;
+  opacity: 0.92;
+}
+
+.baby-hero .avatar {
+  flex-shrink: 0;
+  border: 2px solid rgb(255 255 255 / 85%);
+}
+
+.baby-hero-go {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+@media (max-width: 600px) {
+  .baby-hero {
+    min-height: 220px;
+  }
+
+  .baby-hero h2 {
+    font-size: 1.35rem;
+  }
+
+  .baby-hero p {
+    font-size: 0.85rem;
+  }
+}
+
+.home-recent {
+  margin-top: 16px;
+}
+
+.home-recent .group-header h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.home-more {
+  margin-left: auto;
+}
+
+/* 最近的照片：电脑上一行 6 张，手机上一行 3 张 */
+.home-recent .grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 600px) {
+  .home-recent .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 右边一栏比较窄：那年今日的缩略图换到文字下面 */
+.home-side .memory-banner {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.home-side .memory-thumbs img {
+  width: auto;
+  height: auto;
+  aspect-ratio: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+.home-side .recent-social {
+  margin-top: 0;
+}

@@ -271,8 +271,11 @@ function Stage({ item, onPrev, onNext, onClose }: { item: AlbumItem; onPrev: () 
   const isLive = !isVideo && (!!item.livePhotoVideoId || !!liveCheck.data?.videoId);
   const [livePlaying, setLivePlaying] = useState(false);
   const [zoomed, setZoomed] = useState(false);
-  // 大图还没加载好时，先用列表里已经加载过的小图垫着，不黑屏
+  // 大图下载完之前不显示（手机网络慢时 iPhone 会先画出上半截，下半截是黑的），先用列表里已经加载过的小图垫着
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  // 实况视频真正开始播放后才显示，加载时不闪黑
+  const [liveShown, setLiveShown] = useState(false);
 
   // 缩放和位移直接写到 style 上，不经过 React 渲染，手势才跟手
   const view = useRef({ scale: 1, x: 0, y: 0 });
@@ -323,12 +326,21 @@ function Stage({ item, onPrev, onNext, onClose }: { item: AlbumItem; onPrev: () 
     return { x: p.x - r.left - r.width / 2, y: p.y - r.top - r.height / 2 };
   }
 
-  // 实况照片：打开时自动播放一次
+  // 浏览器缓存里已经有这张大图时，load 事件可能在挂上监听之前就发生了
   useEffect(() => {
-    if (!isLive) return;
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) setLoaded(true);
+  }, []);
+
+  // 实况照片：大图下载完再自动播放一次（不和大图抢网络，手机上大图才下得快）
+  useEffect(() => {
+    if (!isLive || !loaded) return;
     const t = setTimeout(() => setLivePlaying(true), 400);
     return () => clearTimeout(t);
-  }, [isLive]);
+  }, [isLive, loaded]);
+
+  useEffect(() => {
+    if (!livePlaying) setLiveShown(false);
+  }, [livePlaying]);
 
   // 触控板捏合（浏览器报告为带 ctrlKey 的滚轮事件）、Ctrl+滚轮缩放
   useEffect(() => {
@@ -458,15 +470,37 @@ function Stage({ item, onPrev, onNext, onClose }: { item: AlbumItem; onPrev: () 
       onPointerCancel={onPointerUp}
       onContextMenu={(e) => isLive && e.preventDefault()}
     >
-      {!isVideo && !loaded && <img className="lightbox-placeholder" src={thumbUrl(album, item.id)} alt="" aria-hidden="true" />}
+      {!isVideo && !loaded && (
+        <>
+          <img className="lightbox-placeholder" src={thumbUrl(album, item.id)} alt="" aria-hidden="true" />
+          <span className="lightbox-loading" role="status" aria-label="加载中" />
+        </>
+      )}
       <div ref={mediaRef} className="lightbox-media">
         {isVideo ? (
           <video src={videoUrl(album, item.id)} poster={thumbUrl(album, item.id, 'preview')} controls autoPlay playsInline />
         ) : (
           <>
-            <img src={thumbUrl(album, item.id, 'preview')} alt={item.fileName} draggable={false} onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} />
+            <img
+              ref={imgRef}
+              className={loaded ? '' : 'lightbox-pending'}
+              src={thumbUrl(album, item.id, 'preview')}
+              alt={item.fileName}
+              draggable={false}
+              onLoad={() => setLoaded(true)}
+              onError={() => setLoaded(true)}
+            />
             {isLive && livePlaying && !zoomed && (
-              <video className="live-video" src={liveUrl(album, item.id)} autoPlay muted playsInline onEnded={() => setLivePlaying(false)} onError={() => setLivePlaying(false)} />
+              <video
+                className={`live-video ${liveShown ? '' : 'lightbox-pending'}`}
+                src={liveUrl(album, item.id)}
+                autoPlay
+                muted
+                playsInline
+                onPlaying={() => setLiveShown(true)}
+                onEnded={() => setLivePlaying(false)}
+                onError={() => setLivePlaying(false)}
+              />
             )}
           </>
         )}
