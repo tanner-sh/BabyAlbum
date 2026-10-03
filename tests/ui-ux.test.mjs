@@ -168,8 +168,12 @@ check('点关闭后按返回键回到首页', path(page) === '/', path(page));
     if (r.url().includes('size=preview')) setTimeout(() => r.continue().catch(() => {}), 2500);
     else r.continue().catch(() => {});
   });
-  const live = await slow.$('.tab-panel .grid .thumb-live');
-  await (live ? live.evaluate((e) => e.closest('.thumb').click()) : slow.evaluate(() => document.querySelector('.tab-panel .grid .thumb').click()));
+  // 别点第一张：首页封面可能就是它，大图已经在首页下载过了，测不出慢
+  const live = await slow.evaluateHandle(() => [...document.querySelectorAll('.tab-panel .grid .thumb')].slice(1).find((t) => t.querySelector('.thumb-live')) ?? null);
+  const isLive = !!(await live.jsonValue());
+  await (isLive
+    ? live.evaluate((e) => e.click())
+    : slow.evaluate(() => [...document.querySelectorAll('.tab-panel .grid .thumb')].slice(1).find((t) => !t.querySelector('.thumb-badge:not(.thumb-live)'))?.click()));
   await slow.waitForSelector('.lightbox');
   await sleep(1200);
   const during = await slow.evaluate(() => ({
@@ -177,7 +181,7 @@ check('点关闭后按返回键回到首页', path(page) === '/', path(page));
     hidden: document.querySelector('.lightbox-media > img')?.classList.contains('lightbox-pending'),
   }));
   check('慢网络：大图下载完之前先藏起来，垫着小图', during.placeholder && during.hidden, during);
-  if (live) check('慢网络：实况视频等大图下载完才开始下载', liveRequests.length === 0, liveRequests.length);
+  if (isLive) check('慢网络：实况视频等大图下载完才开始下载', liveRequests.length === 0, liveRequests.length);
   await slow.waitForSelector('.lightbox-placeholder', { hidden: true, timeout: 15000 }).catch(() => {});
   const after = await slow.evaluate(() => document.querySelector('.lightbox-media > img')?.classList.contains('lightbox-pending'));
   check('慢网络：大图下载完后显示出来', after === false && !(await slow.$('.lightbox-placeholder')));
