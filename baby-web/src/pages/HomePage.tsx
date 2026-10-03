@@ -96,8 +96,8 @@ function BabyHero({ baby }: { baby: Baby }) {
             <span className="baby-hero-age">{baby.ageLabel}</span>
           </h2>
           <p>
-            {days > 0 ? `今天是第 ${days.toLocaleString()} 天` : `${formatDate(baby.birthday)} 出生`}
-            {next && ` · ${next}`}
+            <span>{days > 0 ? `今天是第 ${days.toLocaleString()} 天` : `${formatDate(baby.birthday)} 出生`}</span>
+            {next && <span className="baby-hero-next">{next}</span>}
           </p>
         </div>
         <ChevronRight size={22} className="baby-hero-go" />

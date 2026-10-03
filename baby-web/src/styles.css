@@ -4310,3 +4310,31 @@ details.account-section[open] summary {
 .home-side .recent-social {
   margin-top: 0;
 }
+
+/* 首页封面：电脑上一行“今天是第 N 天 · 再过 N 天……”，手机上分两行；手机上不显示头像（封面就是宝宝） */
+.baby-hero-next::before {
+  content: ' · ';
+}
+
+.home > .home-main > .add-baby {
+  margin-top: 16px;
+}
+
+@media (max-width: 600px) {
+  .baby-hero-next {
+    display: block;
+  }
+
+  .baby-hero-next::before {
+    content: none;
+  }
+
+  .baby-hero .avatar {
+    display: none;
+  }
+
+  /* 最近的照片：手机上 3 行 9 张就够了 */
+  .home-recent .grid > :nth-child(n + 10) {
+    display: none;
+  }
+}
