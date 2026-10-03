@@ -4338,3 +4338,118 @@ details.account-section[open] summary {
     display: none;
   }
 }
+
+/* 首页右栏的卡片：那年今日、记录 */
+.home-card {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.home-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+
+.home-card-head strong {
+  color: var(--text);
+}
+
+.otd-year + .otd-year {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.otd-year p {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+}
+
+.otd-thumbs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.otd-thumbs button {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  aspect-ratio: 1;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+
+.otd-thumbs img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.otd-more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 45%);
+  color: #fff;
+  font-weight: 600;
+}
+
+.home-records {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-records li + li {
+  border-top: 1px solid var(--border);
+}
+
+.home-records a {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-records a > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.home-records a > span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.home-records-text {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.home-reminder a {
+  align-items: center;
+  color: var(--accent);
+}
+
+.home-reminder a > svg {
+  margin-top: 0;
+  color: var(--accent);
+}

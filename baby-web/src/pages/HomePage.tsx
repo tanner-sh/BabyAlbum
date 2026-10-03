@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby as BabyIcon, CalendarHeart, ChevronRight, Images, Plus } from 'lucide-react';
+import { Baby as BabyIcon, BellRing, CalendarHeart, ChevronRight, Flag, Images, NotebookPen, Plus, Ruler } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useNavigate, useOutletContext } from 'react-router';
-import { get, request, thumbUrl, useAlbum, useBabies, useBabyHome, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
+import { canEdit, get, request, thumbUrl, useAlbum, useBabies, useBabyHome, useJournal, useMeasurements, useMilestones, useOnThisDay, type AdminPerson, type Baby, type Me, type Sex } from '../api';
 import { ClaimBanner, SexPicker } from '../components/ClaimBaby';
 import { FaceStrip } from '../components/PersonPhotos';
 import { RecentInteractions } from '../components/RecentInteractions';
@@ -65,7 +65,10 @@ export function HomePage() {
               <ReviewBanner key={`review-${b.id}`} baby={b} />
             ))}
             {babies.data.map((b) => (
-              <TodayMemories key={b.id} baby={b} />
+              <OnThisDayCard key={`otd-${b.id}`} baby={b} />
+            ))}
+            {babies.data.map((b) => (
+              <RecordsCard key={`records-${b.id}`} baby={b} editable={canEdit(me)} />
             ))}
             <RecentInteractions />
             {/* 待办只有管理员看得到，放在旁边，默认收成一行（有严重问题才展开） */}
@@ -130,31 +133,130 @@ function RecentPhotos({ baby }: { baby: Baby }) {
   );
 }
 
-function TodayMemories({ baby }: { baby: Baby }) {
+/** 那年今日：往年的今天，每一年一行（当时多大、几张），点照片直接看大图 */
+function OnThisDayCard({ baby }: { baby: Baby }) {
   const album = useAlbum();
   const memories = useOnThisDay(baby.id);
-  const first = memories.data?.[0];
-  if (!first) return null;
-  const count = memories.data!.reduce((n, e) => n + e.items.length, 0);
+  const [open, setOpen] = useState<{ year: number; index: number } | null>(null);
+  const years = (memories.data ?? []).slice(0, 3);
+  if (!years.length) return null;
+  const opened = open && years.find((y) => y.year === open.year);
   return (
-    <Link to={`/baby/${baby.id}?tab=review&view=memories`} className="memory-banner">
-      <div className="memory-text">
-        <CalendarHeart size={20} />
-        <div>
-          <strong>
-            {baby.name} · {first.yearsAgo} 年前的今天
-          </strong>
-          <span className="muted">
-            {first.ageLabel}，往年今天共 {count} 张
-          </span>
+    <section className="home-card">
+      <header className="home-card-head">
+        <CalendarHeart size={18} />
+        <strong>{baby.name} · 那年今日</strong>
+        <Link to={`/baby/${baby.id}?tab=review&view=memories`} className="muted small home-more">
+          全部 ›
+        </Link>
+      </header>
+      {years.map((y) => (
+        <div key={y.year} className="otd-year">
+          <p>
+            <strong>{y.yearsAgo} 年前</strong>
+            <span className="muted">
+              {' '}
+              · {y.ageLabel} · {y.items.length} 张
+            </span>
+          </p>
+          <div className="otd-thumbs">
+            {y.items.slice(0, 4).map((item, i) => (
+              <button key={item.id} type="button" onClick={() => setOpen({ year: y.year, index: i })} aria-label={`看 ${y.yearsAgo} 年前的照片`}>
+                <img src={thumbUrl(album, item.id)} alt="" loading="lazy" />
+                {i === 3 && y.items.length > 4 && <span className="otd-more">+{y.items.length - 4}</span>}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="memory-thumbs">
-        {first.items.slice(0, 4).map((i) => (
-          <img key={i.id} src={thumbUrl(album, i.id)} alt="" loading="lazy" />
+      ))}
+      {opened && <Lightbox items={opened.items} index={open.index} onIndexChange={(index) => setOpen({ year: opened.year, index })} onClose={() => setOpen(null)} />}
+    </section>
+  );
+}
+
+/** 最近的记录（里程碑、日记、身高体重），能编辑的家人还会看到提醒 */
+function RecordsCard({ baby, editable }: { baby: Baby; editable: boolean }) {
+  const milestones = useMilestones(baby.id);
+  const journal = useJournal(baby.id);
+  const measurements = useMeasurements(baby.id);
+  if (milestones.isPending || journal.isPending || measurements.isPending) return null;
+  const milestone = milestones.data?.[0];
+  const entry = journal.data?.[0];
+  const measure = measurements.data?.at(-1);
+  const now = today();
+  const sinceMeasure = measure ? daysBetween(measure.date, now) : null;
+  const view = (v: string) => `/baby/${baby.id}?tab=records&view=${v}`;
+
+  const reminders: { to: string; text: string }[] = [];
+  if (editable) {
+    if (sinceMeasure === null) reminders.push({ to: view('measurements'), text: '还没记过身高体重，记一笔吧' });
+    else if (sinceMeasure > 30) reminders.push({ to: view('measurements'), text: `已经 ${sinceMeasure} 天没记身高体重了` });
+    if (!milestone) reminders.push({ to: view('milestones'), text: '记下第一个里程碑' });
+  }
+  if (!milestone && !entry && !measure && !reminders.length) return null;
+
+  const size = measure && [measure.heightCm && `身高 ${measure.heightCm} cm`, measure.weightKg && `体重 ${measure.weightKg} kg`, measure.headCm && `头围 ${measure.headCm} cm`].filter(Boolean).join(' · ');
+  return (
+    <section className="home-card">
+      <header className="home-card-head">
+        <NotebookPen size={18} />
+        <strong>{baby.name}的记录</strong>
+        <Link to={view('milestones')} className="muted small home-more">
+          全部 ›
+        </Link>
+      </header>
+      <ul className="home-records">
+        {milestone && (
+          <li>
+            <Link to={view('milestones')}>
+              <Flag size={16} />
+              <span>
+                <strong>{milestone.title}</strong>
+                <span className="muted small">
+                  {formatDate(milestone.date)} · {milestone.ageLabel}
+                </span>
+              </span>
+            </Link>
+          </li>
+        )}
+        {entry && (
+          <li>
+            <Link to={view('journal')}>
+              <NotebookPen size={16} />
+              <span>
+                <span className="home-records-text">{entry.text}</span>
+                <span className="muted small">
+                  {formatDate(entry.date)} · {entry.ageLabel}
+                  {entry.authorName && ` · ${entry.authorName}`}
+                </span>
+              </span>
+            </Link>
+          </li>
+        )}
+        {measure && size && (
+          <li>
+            <Link to={view('measurements')}>
+              <Ruler size={16} />
+              <span>
+                <strong>{size}</strong>
+                <span className="muted small">
+                  {formatDate(measure.date)} · {measure.ageLabel}
+                </span>
+              </span>
+            </Link>
+          </li>
+        )}
+        {reminders.map((r) => (
+          <li key={r.text} className="home-reminder">
+            <Link to={r.to}>
+              <BellRing size={16} />
+              <span>{r.text}</span>
+              <ChevronRight size={16} />
+            </Link>
+          </li>
         ))}
-      </div>
-    </Link>
+      </ul>
+    </section>
   );
 }
 

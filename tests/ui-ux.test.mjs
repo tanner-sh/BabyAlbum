@@ -87,6 +87,29 @@ const cols = await page.evaluate(() => {
   return { mainLeft: m.left, sideLeft: sd.left, mainRight: m.right };
 });
 check('电脑上首页两栏', cols.sideLeft >= cols.mainRight, cols);
+// 记录卡片：最新的里程碑、身高体重提醒
+const ms0 = (await admin.req('POST', `/api/babies/${baby.id}/milestones`, { title: '首页测试里程碑', date: new Date().toISOString().slice(0, 10) })).data;
+const measures = (await admin.req('GET', `/api/babies/${baby.id}/measurements`)).data;
+const lastMeasure = measures.at(-1)?.date;
+await page.reload({ waitUntil: 'networkidle0' });
+await page.waitForSelector('.home-records', { timeout: 20000 });
+const records = await page.$eval('.home-records', (e) => e.innerText);
+check('首页记录：显示最新的里程碑', records.includes('首页测试里程碑'), records);
+const stale = !lastMeasure || (Date.now() - Date.parse(lastMeasure)) / 86_400_000 > 31;
+if (stale) check('首页记录：很久没记身高体重时提醒', /天没记身高体重|还没记过身高体重/.test(records), records);
+await admin.req('DELETE', `/api/milestones/${ms0.id}`);
+// 那年今日：每一年一行，点照片看大图
+const otd = (await admin.req('GET', `/api/babies/${baby.id}/on-this-day`)).data;
+if (otd.length) {
+  await page.waitForSelector('.otd-year');
+  const rows = await page.$$eval('.home-card', (cards) => cards.find((c) => c.innerText.includes('那年今日'))?.querySelectorAll('.otd-year').length ?? 0);
+  check('首页那年今日：每一年一行', rows === Math.min(3, otd.length), { rows, years: otd.length });
+  await page.click('.otd-thumbs button');
+  await page.waitForSelector('.lightbox');
+  check('首页那年今日：点照片看大图', (await page.$eval('.lightbox-counter', (e) => e.innerText)).includes(`/ ${otd[0].items.length}`));
+  await page.keyboard.press('Escape');
+  await sleep(400);
+} else console.log('- 测试照片里没有往年今天的，跳过那年今日检查');
 await page.screenshot({ path: `${SHOTS}home.png` });
 {
   const phoneHome = await newPage();
