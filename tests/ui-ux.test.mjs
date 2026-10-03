@@ -73,7 +73,8 @@ await page.waitForSelector('.baby-hero');
 const hero = await page.$eval('.baby-hero', (e) => e.innerText);
 check('首页封面：名字、第几天、下一个日子', hero.includes(baby.name) && /今天是第 [\d,]+ 天/.test(hero) && /再过 \d+ 天/.test(hero), hero);
 await page.waitForSelector('.home-recent .thumb', { timeout: 30000 });
-const recentCount = await page.$$eval('.home-recent .thumb', (t) => t.length);
+// 有几个宝宝就有几组，只数第一组
+const recentCount = await page.$eval('.home-recent', (e) => e.querySelectorAll('.thumb').length);
 check('首页最近的照片：最多 12 张', recentCount > 0 && recentCount <= 12, recentCount);
 await page.click('.home-recent .thumb');
 await page.waitForSelector('.lightbox');
@@ -127,6 +128,8 @@ check('点关闭后按返回键回到首页', path(page) === '/', path(page));
 // 手机网络慢：大图下载完之前不显示半截图，垫着小图；实况视频等大图下载完才开始下载
 {
   const slow = await newPage();
+  // 图片请求经过 Service Worker 时拦截不到，测试里不用它
+  await slow.setBypassServiceWorker(true);
   await slow.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
   await slow.type('input[autocomplete=username]', creds.username);
   await slow.type('input[autocomplete=current-password]', creds.password);
